@@ -1,0 +1,20 @@
+.github/dependabot.yml
+  h_1b119f25eaf333 1-68
+.github/workflows/dependency-review.yml
+  h_1b119f25eaf333 1-30
+.github/workflows/scorecard.yml
+  h_1b119f25eaf333 1-53
+.github/workflows/secret-scan.yml
+  h_1b119f25eaf333 1-35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "95e76805e8e14273d71886d8b8c87bf3c533fe68",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
