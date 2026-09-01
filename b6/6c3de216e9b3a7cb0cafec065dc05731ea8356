@@ -1,0 +1,14 @@
+.github/workflows/secret-scan.yml
+  h_1b119f25eaf333 6-9,35,37-65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "b66c3de216e9b3a7cb0cafec065dc05731ea8356",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
