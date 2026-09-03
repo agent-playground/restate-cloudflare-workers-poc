@@ -1,0 +1,22 @@
+specs/checkout.qnt
+  h_1b119f25eaf333 70,73,84,86
+src/checkout.ts
+  h_1b119f25eaf333 31,38
+src/game.ts
+  h_1b119f25eaf333 30-37,53,61-65,68-70,74,80,87-96
+test/checkout.test.ts
+  h_1b119f25eaf333 37,72
+test/game.test.ts
+  h_1b119f25eaf333 42,46,53,56-57,59,66-76,88,92,96,100-108,112-117,121,123-129,132,134-140,142,145,147,149,152,160-175
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "0dfa71871482b728a10ef801c82d77bbfdad21a1",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
