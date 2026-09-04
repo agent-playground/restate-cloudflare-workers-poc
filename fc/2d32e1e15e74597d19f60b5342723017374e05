@@ -1,0 +1,16 @@
+package.json
+  h_1b119f25eaf333 11-12
+test/race_counterexample.test.ts
+  h_1b119f25eaf333 1-122
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "fc2d32e1e15e74597d19f60b5342723017374e05",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
