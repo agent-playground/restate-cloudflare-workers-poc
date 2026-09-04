@@ -1,0 +1,20 @@
+specs/README.md
+  h_1b119f25eaf333 88-95
+src/checkout.ts
+  h_1b119f25eaf333 31-39
+test/checkout.test.ts
+  h_1b119f25eaf333 48-52,82-108
+test/integration_scenarios.test.ts
+  h_1b119f25eaf333 69-81,84-99,101,103-115,117,119,124,126-127
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "0dd03aaf6bb4cb021add250be9522b56c5cfa4d0",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
