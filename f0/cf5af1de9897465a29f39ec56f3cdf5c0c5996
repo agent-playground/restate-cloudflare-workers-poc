@@ -1,0 +1,36 @@
+.github/workflows/test.yml
+  h_1b119f25eaf333 1-63
+README.md
+  h_1b119f25eaf333 98-101,104-126,157,159,162-170,174-182,184-185,192,194,196-199
+load-test-local.js
+  h_1b119f25eaf333 1-10
+load-test.js
+  h_1b119f25eaf333 3,6-24,26-37,41-43,46-51,55-68,71,83-87,89-94,96-99,101-102,105,108-109,114-163
+package.json
+  h_1b119f25eaf333 11-13
+src/index.ts
+  h_1b119f25eaf333 5,21-22
+src/utils/delay.ts
+  h_1b119f25eaf333 1-32
+src/utils/email.ts
+  h_1b119f25eaf333 1-2,8-9
+src/utils/payment_new.ts
+  h_1b119f25eaf333 1-2,7
+test-all.sh
+  h_1b119f25eaf333 32,37-42,300-391
+test/integration_scenarios.test.ts
+  h_1b119f25eaf333 201-243
+test/loader/test-setup.mjs
+  h_1b119f25eaf333 1-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "f0cf5af1de9897465a29f39ec56f3cdf5c0c5996",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
