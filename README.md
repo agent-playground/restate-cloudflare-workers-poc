@@ -183,7 +183,15 @@ k6 run -e TARGET=cloud -e RESTATE_AUTH_TOKEN=$RESTATE_AUTH_TOKEN -e VUS=10 -e DU
 
 # 直接指定任意 ingress
 k6 run -e BASE_URL=http://localhost:8080 load-test.js
+
+# 延遲預算：預設 p(95)<5000ms。只有當 Worker 也跑在本機（wrangler dev）時才適合收緊
+k6 run -e LATENCY_P95_MS=2000 load-test.js
 ```
+
+> **延遲門檻說明**：本 PoC 常見的部署是「本機 Restate ＋ 部署在 Cloudflare 的 Worker」，
+> 此時每次 handler 呼叫都要往返 Cloudflare edge——實測單次往返約 0.95–1.06s
+> （模擬付款 500ms ＋ 網路），一次結帳含多次跨物件呼叫，p(95) 約 2.7s 屬正常。
+> 因此預設預算為 5s，不因 ingress 在 localhost 就誤判為「本地應該很快」。
 
 ## 📂 專案結構
 
