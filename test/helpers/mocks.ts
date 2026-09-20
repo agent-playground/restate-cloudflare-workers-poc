@@ -67,6 +67,8 @@ export function createMockContext(
   options: { overrides?: ClientOverrides; sendOverrides?: ClientOverrides } = {}
 ): restate.Context {
   const ctx = {
+    // handler 事件會擷取 ctx.request().id 作關聯識別；mock 回傳固定 id 即可驅動。
+    request: () => ({ id: "inv_test" }),
     get: async (key: string) => {
       const value = mock.data[key];
       return value === undefined ? null : value;

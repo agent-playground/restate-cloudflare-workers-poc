@@ -217,9 +217,16 @@ function deliverPending(world: WorldState, s: PendingSend): Promise<unknown> {
 /** 病理自排（handler 一直 queue 自己）時避免無限投遞的保險絲。 */
 const MAX_DELIVERIES = 10_000;
 
+/** 每次 handler 執行配發一個 invocation id，對齊 Restate「同一 invocation id 在重試間不變」。 */
+let invocationCounter = 0;
+
 /** 建立某 (service, key) 的 mock context，讀寫該槽位。run("now") 讀受控時鐘。 */
 function makeRoutedCtx(world: WorldState, service: string, key: string): restate.Context {
+  // handler 事件以 ctx.request().id 作 invocation 關聯識別；harness 每次執行配發一個 id，
+  // 同一執行內重複讀取回傳同一值。
+  const invocationId = "inv_test_" + service + ":" + key + ":" + (++invocationCounter);
   const ctx = {
+    request: () => ({ id: invocationId }),
     get: async (k: string) => {
       const slot = slotOf(world, service, key);
       const value = slot.data[k];
