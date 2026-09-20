@@ -1,5 +1,6 @@
 import * as restate from "@restatedev/restate-sdk-cloudflare-workers/fetch";
 import { gameManager } from "./game_manager";
+import { logger } from "./utils/logger";
 
 // ----------------------------------------------------------------------------
 // Ticket Object
@@ -24,6 +25,13 @@ export const ticketObject = restate.object({
             };
 
             if (state.status === "SOLD") {
+                logger.info("ticket reserve rejected", {
+                    ticketId: ctx.key,
+                    userId,
+                    ticketStatus: state.status,
+                    reservedBy: state.reservedBy,
+                    reason: "already sold",
+                });
                 throw new restate.TerminalError("Ticket already sold");
             }
 
@@ -40,6 +48,14 @@ export const ticketObject = restate.object({
             // 逾期的 RESERVED 已在上方分支被釋放為 AVAILABLE，此處仍為 RESERVED 者必屬有效保留。
             // 重播安全：同 invocation 的重試由 Restate journal 重放，不會重呼 handler。
             if (state.status === "RESERVED") {
+                logger.info("ticket reserve rejected", {
+                    ticketId: ctx.key,
+                    userId,
+                    ticketStatus: state.status,
+                    reservedBy: state.reservedBy,
+                    reservedUntil: state.reservedUntil,
+                    reason: "currently reserved",
+                });
                 throw new restate.TerminalError("Ticket is currently reserved");
             }
 
@@ -66,11 +82,25 @@ export const ticketObject = restate.object({
                 if (state.reservedBy === userId) {
                     return true;
                 }
+                logger.info("ticket confirm rejected", {
+                    ticketId: ctx.key,
+                    userId,
+                    ticketStatus: state.status,
+                    reservedBy: state.reservedBy,
+                    reason: "sold to another user",
+                });
                 throw new restate.TerminalError(`Ticket already sold to another user: ${state.reservedBy}`);
             }
 
             // 認領守衛：必須為 RESERVED 且保留者與呼叫者一致，不再容忍 AVAILABLE 直接確認
             if (state.status !== "RESERVED" || state.reservedBy !== userId) {
+                logger.info("ticket confirm rejected", {
+                    ticketId: ctx.key,
+                    userId,
+                    ticketStatus: state.status,
+                    reservedBy: state.reservedBy,
+                    reason: "not reserved by caller",
+                });
                 throw new restate.TerminalError(`Ticket is not reserved by user ${userId} (status: ${state.status}, reservedBy: ${state.reservedBy})`);
             }
 
@@ -91,9 +121,23 @@ export const ticketObject = restate.object({
             // 若由特定使用者發起釋放（補償路徑）：僅允許保留者本人釋放非 SOLD 票券
             if (userId !== undefined) {
                 if (state.status === "SOLD") {
+                    logger.info("ticket release skipped", {
+                        ticketId: ctx.key,
+                        userId,
+                        ticketStatus: state.status,
+                        reservedBy: state.reservedBy,
+                        reason: "already sold",
+                    });
                     return false;
                 }
                 if (state.reservedBy && state.reservedBy !== userId) {
+                    logger.info("ticket release skipped", {
+                        ticketId: ctx.key,
+                        userId,
+                        ticketStatus: state.status,
+                        reservedBy: state.reservedBy,
+                        reason: "held by another user",
+                    });
                     return false;
                 }
             }
@@ -137,7 +181,10 @@ export const seatMapObject = restate.object({
             // Auto-Reset Logic
             const soldCount = Object.values(map).filter(s => s === "SOLD").length;
             if (soldCount >= 50) {
-                console.log("All seats sold! Triggering auto-reset...");
+                logger.info("seat map auto-reset triggered", {
+                    soldCount,
+                    seatsReset: 50,
+                });
 
                 // 1. Reset local map state immediately so frontend sees available seats
                 for (let i = 1; i <= 50; i++) {

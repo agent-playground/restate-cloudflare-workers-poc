@@ -3,8 +3,11 @@ import { ticketObject, seatMapObject } from "./game";
 import { checkoutWorkflow } from "./checkout";
 import { gameManager } from "./game_manager";
 import { delay } from "./utils/delay";
+import { logger, errorFields } from "./utils/logger";
 
 console.log("Starting worker script with createEndpointHandler...");
+
+const SERVICE_NAME = "nexus-poc";
 
 const restateHandler = createEndpointHandler({
     services: [ticketObject, checkoutWorkflow, seatMapObject, gameManager],
@@ -16,7 +19,10 @@ async function handleMockPayment(request: Request): Promise<Response> {
     }
 
     const body = await request.json() as { amount: number; paymentMethodId: string };
-    console.log(`[MockGateway] Processing payment: $${body.amount} via ${body.paymentMethodId}`);
+    logger.info("mock payment gateway received request", {
+        amount: body.amount,
+        paymentMethodId: body.paymentMethodId,
+    });
 
     // Simulate processing time（測試可經 setDelayImpl 歸零）
     await delay(500);
@@ -43,10 +49,35 @@ async function handleMockPayment(request: Request): Promise<Response> {
 
 export default {
     fetch: async (request: Request, env: any, ctx: any) => {
+        const startedAt = Date.now();
         const url = new URL(request.url);
-        if (url.pathname === "/api/mock-payment") {
-            return handleMockPayment(request);
+        const route = url.pathname === "/api/mock-payment" ? "mock-payment" : "restate-endpoint";
+        let status = 500;
+
+        try {
+            const response = url.pathname === "/api/mock-payment"
+                ? await handleMockPayment(request)
+                : await restateHandler(request, env, ctx);
+            status = response.status;
+            return response;
+        } catch (error) {
+            logger.error("request failed", {
+                service: SERVICE_NAME,
+                route,
+                method: request.method,
+                path: url.pathname,
+                ...errorFields(error),
+            });
+            throw error;
+        } finally {
+            logger.info("request handled", {
+                service: SERVICE_NAME,
+                route,
+                method: request.method,
+                path: url.pathname,
+                status,
+                durationMs: Date.now() - startedAt,
+            });
         }
-        return restateHandler(request, env, ctx);
     },
 };
