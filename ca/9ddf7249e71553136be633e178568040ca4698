@@ -1,0 +1,18 @@
+specs/countexample.md
+  h_1b119f25eaf333 1-329
+specs/race_countexample.md
+  h_1b119f25eaf333 1-99
+specs/race_countexample1.md
+  h_1b119f25eaf333 1-45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ca9ddf7249e71553136be633e178568040ca4698",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
