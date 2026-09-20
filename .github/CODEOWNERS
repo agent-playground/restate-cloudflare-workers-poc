@@ -1,0 +1,17 @@
+# CODEOWNERS — guardrail ownership for the Software Factory PoC.
+#
+# Mirrors the H5 hard rule in .github/factory/risk-paths.yml: the files that
+# constrain the agent (.github/** and the workflow that gates PRs, CODEOWNERS
+# itself, catalog-info.yaml, .dsh/skills/**) are owned by the human maintainer.
+# A pull request touching any of these paths must be approved by that owner;
+# the agent must never merge changes to its own guardrails.
+#
+# NOTE: CODEOWNERS records the intended owner. It only blocks merges once the
+# `main` branch ruleset requires review from Code Owners (with at least one
+# approval). Until that ruleset is enabled the file has no enforcement effect.
+
+# H5 — the guardrails themselves.
+/.github/            @philipz
+/.github/CODEOWNERS  @philipz
+/catalog-info.yaml   @philipz
+/.dsh/skills/        @philipz
