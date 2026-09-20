@@ -1,21 +1,21 @@
 import { delay } from "./delay";
+import { logger } from "./logger";
 
 export async function processPayment(amount: number, paymentMethodId: string): Promise<boolean> {
-    console.log(`[DEBUG] Processing payment of $${amount} with method: ${paymentMethodId}`);
-
-    // Simulate payment processing without external dependency to avoid hangs
+    // 每次呼叫一個結果事件，帶上 amount / paymentMethodId / outcome：
+    // 事故時可查「哪個金額、哪種付款方式失敗」，不再只有一句無上下文的 console.log。
     await delay(500); // Simulate 500ms latency（測試可經 setDelayImpl 歸零）
 
     if (paymentMethodId === "card_decline") {
-        console.log("Payment declined by gateway");
+        logger.info("payment declined", { amount, paymentMethodId, outcome: "declined" });
         throw new Error(`Payment declined (Method: ${paymentMethodId})`);
     }
 
     if (paymentMethodId === "card_error") {
-        console.log("Payment gateway timeout");
+        logger.error("payment gateway timeout", { amount, paymentMethodId, outcome: "gateway_timeout" });
         throw new Error("Gateway timeout");
     }
 
-    console.log("Payment successful");
+    logger.info("payment succeeded", { amount, paymentMethodId, outcome: "succeeded" });
     return true;
 }
