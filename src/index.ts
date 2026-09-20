@@ -70,6 +70,14 @@ export default {
             requestId: request.headers.get("cf-ray") ?? crypto.randomUUID(),
         };
 
+        // Restate 執行期在 invoke 請求上帶 x-restate-invocation-id（SDK 也讀同一個 header 標記
+        // 框架日誌）。把它並進邊緣事件，就能用同一 id 把入口請求（route/status/durationMs）
+        // 接到 handler 事件與 [restate][…][inv_…] 框架日誌；非 Restate 路徑沒有此 header，省略該欄位。
+        const invocationId = request.headers.get("x-restate-invocation-id");
+        if (invocationId !== null) {
+            event.invocationId = invocationId;
+        }
+
         try {
             const response = isMockPayment
                 ? await handleMockPayment(request, event)
