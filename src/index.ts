@@ -64,6 +64,10 @@ export default {
             method: request.method,
             path: url.pathname,
             route: isMockPayment ? "mock-payment" : "restate",
+            // 關聯 id：cf-ray 是本請求在 Cloudflare 邊緣的 rayId，可與同一請求在 Workers Logs
+            // 的其他行對上；標頭缺席時（例如本機測試）以隨機 UUID 補上，確保每個請求的
+            // 單一事件都能被唯一識別，而不是只能靠時間戳猜測哪幾行屬於同一請求。
+            requestId: request.headers.get("cf-ray") ?? crypto.randomUUID(),
         };
 
         try {
