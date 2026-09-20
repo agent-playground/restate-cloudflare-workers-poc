@@ -9,7 +9,11 @@ export const checkoutWorkflow = restate.service({
     handlers: {
         process: async (ctx: restate.Context, request: { ticketId: string; userId: string; paymentMethodId?: string }) => {
             const { ticketId, userId, paymentMethodId = "card_success" } = request;
-            logger.info("checkout started", { ticketId, userId, paymentMethodId });
+            // 在 handler 邊界擷取 invocation id：它與框架日誌前綴
+            // [restate][…][Checkout/process][inv_…] 及 index.ts 邊緣事件的 invocationId 同一值，
+            // 讓整段 saga 可用單一 id 從入口請求串到各步驟，不必再跨兩個日誌來源肉眼比對。
+            const invocationId = ctx.request().id;
+            logger.info("checkout started", { invocationId, ticketId, userId, paymentMethodId });
             const ticket = ctx.objectClient<TicketObject>(ticketObject, ticketId);
             const seatMap = ctx.objectClient(seatMapObject, "global");
 
@@ -44,6 +48,7 @@ export const checkoutWorkflow = restate.service({
                 // 該座位、視圖因此不回寫。過去此分支一出事就只能從「視圖為何是 AVAILABLE」反推；
                 // 現在可直接查 released 與原始錯誤，一眼定位是補償未回寫還是補償本身失敗。
                 logger.error("checkout payment failed; reservation compensated", {
+                    invocationId,
                     ticketId,
                     userId,
                     paymentMethodId,
@@ -64,7 +69,7 @@ export const checkoutWorkflow = restate.service({
             });
 
             // 成功結帳過去沒有任何完成事件，無法回答「這筆票到底成交了沒、賣給誰」。
-            logger.info("checkout completed", { ticketId, userId, paymentMethodId, status: "SOLD" });
+            logger.info("checkout completed", { invocationId, ticketId, userId, paymentMethodId, status: "SOLD" });
             return "Booking Confirmed";
         },
     },
