@@ -1,5 +1,6 @@
 import * as restate from "@restatedev/restate-sdk-cloudflare-workers/fetch";
 import { gameManager } from "./game_manager";
+import { logger } from "./utils/logger";
 
 // ----------------------------------------------------------------------------
 // Ticket Object
@@ -24,6 +25,15 @@ export const ticketObject = restate.object({
             };
 
             if (state.status === "SOLD") {
+                // 拒絕路徑過去完全無聲：checkout 的 reserve 在 try 之外，失敗時整筆流程
+                // 直接結束而不留任何應用層痕跡。這行讓「誰在何時試搶已售出的票」可被查詢。
+                logger.info("ticket reservation rejected", {
+                    ticketId: ctx.key,
+                    userId,
+                    outcome: "already_sold",
+                    status: state.status,
+                    reservedBy: state.reservedBy,
+                });
                 throw new restate.TerminalError("Ticket already sold");
             }
 
@@ -40,6 +50,16 @@ export const ticketObject = restate.object({
             // 逾期的 RESERVED 已在上方分支被釋放為 AVAILABLE，此處仍為 RESERVED 者必屬有效保留。
             // 重播安全：同 invocation 的重試由 Restate journal 重放，不會重呼 handler。
             if (state.status === "RESERVED") {
+                // Issue #21 的守衛：這正是雙重扣款事故中「第二次 reserve 被擋下」的證據點。
+                // 過去被擋下時沒有任何日誌，事故後無法區分「沒被擋」與「被擋但無紀錄」。
+                logger.info("ticket reservation rejected", {
+                    ticketId: ctx.key,
+                    userId,
+                    outcome: "currently_reserved",
+                    status: state.status,
+                    reservedBy: state.reservedBy,
+                    reservedUntil: state.reservedUntil,
+                });
                 throw new restate.TerminalError("Ticket is currently reserved");
             }
 
@@ -66,11 +86,26 @@ export const ticketObject = restate.object({
                 if (state.reservedBy === userId) {
                     return true;
                 }
+                logger.info("ticket confirmation rejected", {
+                    ticketId: ctx.key,
+                    userId,
+                    outcome: "sold_to_another_user",
+                    status: state.status,
+                    reservedBy: state.reservedBy,
+                });
                 throw new restate.TerminalError(`Ticket already sold to another user: ${state.reservedBy}`);
             }
 
             // 認領守衛：必須為 RESERVED 且保留者與呼叫者一致，不再容忍 AVAILABLE 直接確認
             if (state.status !== "RESERVED" || state.reservedBy !== userId) {
+                // 認領守衛拒絕：付款已成功卻無法確認座位時，這裡是唯一線索（哪裡掉了保留）。
+                logger.error("ticket confirmation rejected", {
+                    ticketId: ctx.key,
+                    userId,
+                    outcome: "not_reserved_by_user",
+                    status: state.status,
+                    reservedBy: state.reservedBy,
+                });
                 throw new restate.TerminalError(`Ticket is not reserved by user ${userId} (status: ${state.status}, reservedBy: ${state.reservedBy})`);
             }
 
@@ -137,7 +172,13 @@ export const seatMapObject = restate.object({
             // Auto-Reset Logic
             const soldCount = Object.values(map).filter(s => s === "SOLD").length;
             if (soldCount >= 50) {
-                console.log("All seats sold! Triggering auto-reset...");
+                // 自動重置是「整批座位歸零」的重大副作用，過去只留一句無欄位的字串。
+                // 現在可查 soldCount 與觸發時機，回答「重置是從哪一筆寫入觸發的」。
+                logger.info("seat map auto-reset triggered", {
+                    soldCount,
+                    threshold: 50,
+                    triggeringSeatId: data.seatId,
+                });
 
                 // 1. Reset local map state immediately so frontend sees available seats
                 for (let i = 1; i <= 50; i++) {
