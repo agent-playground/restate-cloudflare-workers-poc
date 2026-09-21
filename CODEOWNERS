@@ -1,0 +1,115 @@
+# CODEOWNERS — restate-cloudflare-workers-poc
+#
+# 目的：把 .github/factory/risk-paths.yml 的 H1–H7 硬規則，從「工作項評分」
+# 落實成「PR 層級的人類把關」。risk-paths.yml 負責把碰到這些路徑的工作項標成
+# risk = 2；本檔負責讓這類 PR 無法在沒有人類 review 的情況下合併。兩者合起來
+# 才是 docs/05-guardrails-governance.md §1.1 的雙層防線（D4）:
+# agent 不能自行修改約束自己的規則。
+#
+# ── 刻意不設 `*` 全域規則 ──────────────────────────────────────────────
+# catalog-info.yaml 把本 repo 的三軸都評為最低風險，目的是讓工作項落在
+# on-loop（agent 可自主執行），用來驗證 Software Factory 能否自動修補相依套件。
+# 若加上 `* @philipz`，在開啟 "Require review from Code Owners" 後
+# 每一個 PR（含 dependabot 的套件升級）都會被擋下，正好抵銷試點目的。
+# 因此本檔只列出「必須由人類把關」的高風險路徑，其餘路徑（src/*.ts、test/*、
+# package.json 等）維持 agent 自主。
+#
+# ── GitHub CODEOWNERS 語意提醒 ─────────────────────────────────────────
+#   * 由上往下比對，**最後一個**符合的 pattern 生效。
+#   * 不支援 `!` 反向排除。
+#   * 未被任何 pattern 命中的檔案 = 沒有 code owner = 不需 owner review。
+#   * 本檔本身不強制任何事，需搭配 branch protection（見檔尾）。
+#
+# Owner 說明：agent-playground org 目前沒有任何 team，唯一的人類 collaborator
+# 是 @philipz。多數 PR 由 bot 產生（software-factory-worker[bot]、
+# polylane[bot]、dependabot[bot]），所以下列規則的實質作用是：
+# bot 不得在無人類把關下改動高風險路徑。日後若成立 team，
+# 將 @philipz 換成 @agent-playground/<team> 即可。
+
+# ---------------------------------------------------------------------------
+# H5 — 護欄自我保護
+# CI/CD、風險規則、Backstage catalog、agent 指令與技能定義。
+# 編輯這些等於讓 agent 有機會放寬約束自己的規則，優先級最高。
+# ---------------------------------------------------------------------------
+/.github/                   @philipz
+/CODEOWNERS                 @philipz
+/catalog-info.yaml          @philipz
+/.dsh/skills/               @philipz
+/AGENTS.md                  @philipz
+
+# ---------------------------------------------------------------------------
+# H1 — 認證與授權邏輯
+# ---------------------------------------------------------------------------
+/src/auth/                  @philipz
+**/authorization*           @philipz
+**/*permission*             @philipz
+
+# ---------------------------------------------------------------------------
+# H2 — 金流計算
+# ---------------------------------------------------------------------------
+/src/payment/               @philipz
+/src/billing/               @philipz
+**/*invoice*                @philipz
+
+# ---------------------------------------------------------------------------
+# H3 — 敏感資料處理
+# ---------------------------------------------------------------------------
+**/*pii*                    @philipz
+**/crypto/                  @philipz
+**/*secret*                 @philipz
+
+# ---------------------------------------------------------------------------
+# H4 — 系統紀錄與共用模組
+# ---------------------------------------------------------------------------
+/src/shared/                @philipz
+/src/core/                  @philipz
+
+# ---------------------------------------------------------------------------
+# H6 — 不可逆的 schema / 資料遷移
+# ---------------------------------------------------------------------------
+/migrations/                @philipz
+**/*schema*                 @philipz
+
+# ---------------------------------------------------------------------------
+# H7 — 公開 API 的破壞性變更
+# ---------------------------------------------------------------------------
+/api/                       @philipz
+**/*.proto                  @philipz
+/openapi.yaml               @philipz
+
+# ---------------------------------------------------------------------------
+# 額外補強（非 H1–H7，本檔自行加入）
+# wrangler.toml 決定部署目標、環境與 observability 取樣，屬基礎設施設定，
+# 改錯會直接影響線上 Worker，因此納管。
+# ---------------------------------------------------------------------------
+/wrangler.toml              @philipz
+
+# ---------------------------------------------------------------------------
+# 刻意「不」納管的路徑（避免被誤認為疏漏）
+#
+#   src/checkout.ts、src/game.ts、src/game_manager.ts、src/index.ts
+#     — Restate durable execution 的核心，但不在 H4 的 src/shared|core glob 內。
+#   src/utils/payment_new.ts
+#     — 模擬付款，不在 H2 的 src/payment|billing glob 內
+#       （見 docs/research/11-quint-feasibility.md §風險路徑）。
+#   specs/*.qnt、test/**、package.json、package-lock.json
+#     — 試點要驗證的正是 agent 能自主修改這些路徑。
+#
+# 以上是配合 PoC 目的的刻意選擇。若本 repo 日後承載真實流量或金流，
+# 應同步調高 catalog-info.yaml 的三軸評分，並把上述路徑納入本檔。
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# 啟用方式（本檔本身不會強制任何事）
+#
+#   gh api -X PUT repos/agent-playground/restate-cloudflare-workers-poc/branches/main/protection \
+#     -F 'required_pull_request_reviews[require_code_owner_reviews]=true' \
+#     -F 'required_pull_request_reviews[required_approving_review_count]=1' \
+#     -F 'enforce_admins=false' -F 'required_status_checks=null' -F 'restrictions=null'
+#
+# 或在 Settings → Branches → main → Require a pull request before merging →
+# 勾選 "Require review from Code Owners"。
+#
+# 推送後可用以下指令檢查語法與 owner 是否有效（應回傳空陣列）：
+#   gh api repos/agent-playground/restate-cloudflare-workers-poc/codeowners/errors
+# ---------------------------------------------------------------------------
