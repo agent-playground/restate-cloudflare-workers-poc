@@ -85,20 +85,20 @@ describe("harness 自我驗證②——pending queue 與延遲投遞", () => {
   it("send client 僅入佇列不執行；deliver(n) 依 FIFO 投遞 n 筆；drain() 清空", async (t) => {
     const itg = createIntegration();
 
-    await itg.manager.reset(); // GameManager.reset 經 objectSendClient ×51（SeatMap.reset + 50 release）
+    await itg.manager.reset(); // GameManager.reset 經 objectSendClient ×50（僅 Ticket.release）
 
-    // 延遲投遞視窗存在：51 筆都在佇列中，尚未有任何狀態改變
-    t.assert.equal(itg.world.pendingSends.length, 51);
-    t.assert.equal(itg.stateOf("SeatMap", "global").data.map, undefined);
+    // 延遲投遞視窗存在：50 筆都在佇列中，尚未有任何狀態改變
+    t.assert.equal(itg.world.pendingSends.length, 50);
+    t.assert.equal(itg.stateOf("SeatMap", "global").data.map, undefined); // GameManager 不再觸碰視圖
     t.assert.equal(itg.stateOf("Ticket", "seat-1").data.state, undefined);
-    t.assert.equal(itg.world.pendingSends[0].service, "SeatMap"); // FIFO：先進隊先投遞
-    t.assert.equal(itg.world.pendingSends[0].handler, "reset");
+    t.assert.equal(itg.world.pendingSends[0].service, "Ticket"); // FIFO：先進隊先投遞
+    t.assert.equal(itg.world.pendingSends[0].handler, "release");
 
     await itg.deliver(1); // 只投遞 1 筆
-    const map = itg.stateOf("SeatMap", "global").data.map as Record<string, string>;
-    t.assert.equal(map["seat-1"], "AVAILABLE"); // SeatMap.reset 生效
-    t.assert.equal(itg.world.pendingSends.length, 50);
-    t.assert.equal(itg.stateOf("Ticket", "seat-1").data.state, undefined); // 票仍未釋放
+    const released = itg.stateOf("Ticket", "seat-1").data.state as TicketState;
+    t.assert.equal(released.status, "AVAILABLE"); // 第 1 筆 Ticket.release 生效
+    t.assert.equal(itg.world.pendingSends.length, 49);
+    t.assert.equal(itg.stateOf("Ticket", "seat-2").data.state, undefined); // 票仍未釋放
 
     await itg.drain(); // 投遞至清空（含投遞期間新進隊者）
     t.assert.equal(itg.world.pendingSends.length, 0);

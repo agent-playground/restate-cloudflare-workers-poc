@@ -7,19 +7,14 @@ const handlers = () =>
   handlersOf<{ reset: (ctx: any) => Promise<unknown> }>(gameManager, "service");
 
 describe("GameManager.reset()", () => {
-  it("先非同步重設 SeatMap(global)，再對 seat-1..seat-50 逐張發出 release", async (t) => {
+  it("對 seat-1..seat-50 逐張發出 fire-and-forget release（視圖由 SeatMap.set 於觸發時就地重置）", async (t) => {
     const mock = createMockState();
     const ctx = createMockContext(mock);
     t.assert.equal(await handlers().reset(ctx), undefined);
 
-    // 共 51 個 fire-and-forget：1 個 SeatMap.reset + 50 個 Ticket.release
-    t.assert.equal(mock.sendCalls.length, 51);
-    t.assert.deepStrictEqual(mock.sendCalls[0], {
-      service: "SeatMap",
-      key: "global",
-      handler: "reset",
-      args: [],
-    });
+    // 共 50 個 fire-and-forget Ticket.release；不再無條件重設視圖——SeatMap.set 觸發重置時
+    // 已就地重置並保留 SOLD，GameManager 若再無條件寫回 AVAILABLE 會覆蓋已售出座位。
+    t.assert.equal(mock.sendCalls.length, 50);
     const releases = mock.sendCalls
       .filter((c) => c.service === "Ticket")
       .map((c) => `${c.key}.${c.handler}`);
