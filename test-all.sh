@@ -366,25 +366,35 @@ if [ "$RUN_AUTORESET" = "1" ]; then
         FAILED_TESTS=$((FAILED_TESTS + 1))
     fi
 
-    # auto-reset 為 fire-and-forget（SeatMap → GameManager → 50 張 release），給予收斂時間
+    # auto-reset 為 fire-and-forget（SeatMap.set 就地重置 → GameManager → 50 張 release），
+    # 給予收斂時間
     sleep 5
 
+    # SOLD 為終態：auto-reset 不得把已付款座位改回 AVAILABLE，否則同一張票會被二次售出
+    # （幽靈可售票）。視圖與真值都必須保留 SOLD。
     VIEW=$(curl -s -X POST "$RESTATE_URL/SeatMap/global/get" \
         -H "Content-Type: application/json" -d '{}')
-    assert_contains "$VIEW" "AVAILABLE" "auto-reset 後視圖應回到 AVAILABLE"
+    assert_contains "$VIEW" "SOLD" "auto-reset 後視圖保留已售座位為 SOLD"
 
-    if echo "$VIEW" | grep -q "SOLD"; then
-        echo -e "${COLOR_RED}✗ FAIL${COLOR_NC}: auto-reset 後視圖仍有 SOLD 殘留"
+    if echo "$VIEW" | grep -q "AVAILABLE"; then
+        echo -e "${COLOR_RED}✗ FAIL${COLOR_NC}: auto-reset 後視圖出現 AVAILABLE（幽靈可售票）"
         FAILED_TESTS=$((FAILED_TESTS + 1))
     else
-        echo -e "${COLOR_GREEN}✓ PASS${COLOR_NC}: auto-reset 後視圖無 SOLD 殘留"
+        echo -e "${COLOR_GREEN}✓ PASS${COLOR_NC}: auto-reset 後視圖無 AVAILABLE（已售座位未被改回可售）"
         PASSED_TESTS=$((PASSED_TESTS + 1))
     fi
 
-    # 真值層：GameManager.reset 會逐張 release，抽樣驗證
+    # 真值層：GameManager.reset 逐張 release，Ticket.release 對 SOLD 拒絕，抽樣驗證
     SAMPLE=$(curl -s -X POST "$RESTATE_URL/Ticket/seat-1/get" \
         -H "Content-Type: application/json" -d '{}')
-    assert_contains "$SAMPLE" "AVAILABLE" "auto-reset 後 seat-1 真值應為 AVAILABLE"
+    assert_contains "$SAMPLE" "SOLD" "auto-reset 後 seat-1 真值仍為 SOLD"
+    assert_contains "$SAMPLE" "autoreset-user-1" "seat-1 仍由原買家持有"
+
+    # 已售座位再次下單必須被拒（SOLD 終態）
+    REPURCHASE=$(curl -s -X POST "$RESTATE_URL/Checkout/process" \
+        -H "Content-Type: application/json" \
+        -d "{\"ticketId\": \"seat-1\", \"userId\": \"autoreset-rebuy\", \"paymentMethodId\": \"card_success\"}")
+    assert_contains "$REPURCHASE" "already sold" "已售座位再次下單被拒（SOLD 終態）"
 else
     echo -e "\n${COLOR_YELLOW}略過測試 9（湊滿 50 auto-reset）：設定 RUN_AUTORESET=1 可啟用${COLOR_NC}"
 fi

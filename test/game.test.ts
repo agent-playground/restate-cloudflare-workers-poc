@@ -179,9 +179,22 @@ describe("Ticket.release() / cleanup() / get()", () => {
     t.assert.equal(mock.sets.length, 0);
   });
 
-  it("release：無參數時系統重置回到全空 AVAILABLE", async (t) => {
+  it("release：SOLD 為終態 → 無參數的系統重置亦不得釋放（不寫入、回傳 false）", async (t) => {
     const { mock, ctx } = withState({
       state: { status: "SOLD", reservedBy: "alice", reservedUntil: 42 },
+    });
+    t.assert.equal(await handlers().release(ctx), false);
+    t.assert.equal(mock.sets.length, 0);
+    t.assert.deepStrictEqual(mock.data.state, {
+      status: "SOLD",
+      reservedBy: "alice",
+      reservedUntil: 42,
+    });
+  });
+
+  it("release：無參數的系統重置仍可釋放非 SOLD 的保留（回傳 true、回到全空 AVAILABLE）", async (t) => {
+    const { mock, ctx } = withState({
+      state: { status: "RESERVED", reservedBy: "alice", reservedUntil: 42 },
     });
     t.assert.equal(await handlers().release(ctx), true);
     t.assert.deepStrictEqual(mock.data.state, DEFAULT_STATE);

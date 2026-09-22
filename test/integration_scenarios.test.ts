@@ -91,7 +91,7 @@ describe("整合式情境 S2——付款失敗補償時票已被他人買走", (
       injected = true;
       // 背景重置：GameManager.reset 以 fire-and-forget 釋放所有票（含 alice 的保留）
       await itg.manager.reset();
-      await itg.drain(); // 投遞 reset 產生的 SeatMap.reset ＋ 50 張 Ticket.release
+      await itg.drain(); // 投遞 reset 產生的 50 張 Ticket.release（SeatMap 視圖由 set 就地重置）
       // bob 買走同一張票，並寫入較新的 view=SOLD
       await itg.ticket("seat-2").reserve("bob");
       await itg.ticket("seat-2").confirm("bob");
@@ -247,9 +247,12 @@ describe("整合式情境 S6——湊滿 50 SOLD 自動重置", () => {
   // Issue #20 ⑥：修正恆真斷言。舊版只寫 SeatMap view、從未建立任何 Ticket slot，
   // `ticketState === undefined || ...` 因此恒綠——釋放鏈路壞了也不會紅。
   // 現在先讓每席走真實 reserve+confirm（真值 SOLD），再湊滿 50 個 view SOLD：
-  // auto-reset 的 GameManager.reset 在新 harness 下是「待投遞」而非同步完成——
-  // 投遞前真值仍 SOLD（證明斷言非恆真）、drain 後才全部釋放。
-  it("50 席真值 SOLD 觸發 auto-reset：view 全 AVAILABLE、reset 入 pending queue、drain 後票全數釋放", async (t) => {
+  // auto-reset 的 GameManager.reset 在新 harness 下是「待投遞」而非同步完成。
+  //
+  // SOLD 為終態（本次修復）：auto-reset 不得把已付款座位改回 AVAILABLE——view 與真值都
+  // 必須保留 SOLD，否則同一張票會被二次售出（幽靈可售票，load-test.js I2）。GameManager
+  // 逐張 release 時，Ticket.release 對 SOLD 回 false、不寫入，故票與 view 都維持 SOLD。
+  it("50 席真值 SOLD 觸發 auto-reset：SOLD 座位在 view 與真值都被保留、reset 入 pending queue", async (t) => {
     const itg = createIntegration();
 
     // 真整合式：每席先經 Ticket 真實 handler 賣出，再寫 view（最後一席湊滿 50）
@@ -260,10 +263,10 @@ describe("整合式情境 S6——湊滿 50 SOLD 自動重置", () => {
       await itg.seatMap.set({ seatId: `seat-${i}`, status: "SOLD" });
     }
 
-    // 湊滿 50 時觸發 auto-reset：本地 map 立即全部回 AVAILABLE（同步部分）
+    // 湊滿 50 觸發 auto-reset：SOLD 座位保留，view 不得回寫 AVAILABLE
     const map = itg.stateOf("SeatMap", "global").data.map as Record<string, string>;
     t.assert.equal(Object.keys(map).length, 50);
-    t.assert.equal(Object.values(map).every((s) => s === "AVAILABLE"), true);
+    t.assert.equal(Object.values(map).every((s) => s === "SOLD"), true);
 
     // fire-and-forget 語意：GameManager.reset 只在 pending queue 裡，尚未執行
     t.assert.equal(itg.world.pendingSends.length, 1);
@@ -275,17 +278,17 @@ describe("整合式情境 S6——湊滿 50 SOLD 自動重置", () => {
     t.assert.equal(before.status, "SOLD");
     t.assert.equal(before.reservedBy, "user-1");
 
-    // 投遞全部待辦（GameManager.reset → 又進隊 SeatMap.reset + 50 張票的 release）
+    // 投遞全部待辦（GameManager.reset → 進隊 50 張票的 release；Ticket.release 對 SOLD 拒絕）
     await itg.drain();
     t.assert.equal(itg.world.pendingSends.length, 0);
     for (let i = 1; i <= 50; i++) {
       const st = itg.stateOf("Ticket", `seat-${i}`).data.state as TicketState;
-      t.assert.equal(st.status, "AVAILABLE");
-      t.assert.equal(st.reservedBy, null);
+      t.assert.equal(st.status, "SOLD");
+      t.assert.equal(st.reservedBy, `user-${i}`);
     }
-    // SeatMap.reset 亦已投遞：view 維持 50 席全 AVAILABLE
+    // view 維持 50 席 SOLD，與真值一致（無幽靈可售票）
     const map2 = itg.stateOf("SeatMap", "global").data.map as Record<string, string>;
     t.assert.equal(Object.keys(map2).length, 50);
-    t.assert.equal(Object.values(map2).every((s) => s === "AVAILABLE"), true);
+    t.assert.equal(Object.values(map2).every((s) => s === "SOLD"), true);
   });
 });

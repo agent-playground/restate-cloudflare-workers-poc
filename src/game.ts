@@ -123,20 +123,32 @@ export const ticketObject = restate.object({
         },
 
         release: async (ctx: restate.ObjectContext, userId?: string) => {
+            const invocationId = ctx.request().id;
             const state = (await ctx.get<TicketState>("state")) || {
                 status: "AVAILABLE",
                 reservedBy: null,
                 reservedUntil: null,
             };
 
-            // 若由特定使用者發起釋放（補償路徑）：僅允許保留者本人釋放非 SOLD 票券
-            if (userId !== undefined) {
-                if (state.status === "SOLD") {
-                    return false;
-                }
-                if (state.reservedBy && state.reservedBy !== userId) {
-                    return false;
-                }
+            // SOLD 是終態：已付款的票不得被任何呼叫端釋放回可售狀態。
+            // 舊版只在帶 userId 時檢查 SOLD，系統回合重置（GameManager 以無參數呼叫）
+            // 因此能無聲把已售出的票改回 AVAILABLE，使同一張票被二次售出
+            // （違反 P2「付款者仍持有票」與 load-test I2「幽靈可售票」）。
+            if (state.status === "SOLD") {
+                logger.info("ticket release rejected", {
+                    invocationId,
+                    ticketId: ctx.key,
+                    userId: userId ?? null,
+                    outcome: "already_sold",
+                    status: state.status,
+                    reservedBy: state.reservedBy,
+                });
+                return false;
+            }
+
+            // 補償路徑（帶 userId）：僅允許保留者本人釋放。
+            if (userId !== undefined && state.reservedBy && state.reservedBy !== userId) {
+                return false;
             }
 
             state.status = "AVAILABLE";
@@ -188,8 +200,13 @@ export const seatMapObject = restate.object({
                     triggeringSeatId: data.seatId,
                 });
 
-                // 1. Reset local map state immediately so frontend sees available seats
+                // 1. Reset local map state immediately so frontend sees available seats.
+                //    SOLD 為終態：已付款座位不得回寫為 AVAILABLE，否則視圖會顯示可售
+                //    而真值仍 SOLD（幽靈可售票，見 load-test.js I2）。只重置未售出的座位。
                 for (let i = 1; i <= 50; i++) {
+                    if (map[`seat-${i}`] === "SOLD") {
+                        continue;
+                    }
                     map[`seat-${i}`] = "AVAILABLE";
                 }
                 ctx.set("map", map);
