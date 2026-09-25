@@ -5,9 +5,12 @@
 # H5-H7 are this project's additions covering guardrail self-protection
 # and irreversible operations.
 #
-# This file lives under .github/ and is therefore protected by CODEOWNERS:
-# the agent must never be able to edit the rules that constrain it
-# (docs/05-guardrails-governance.md §1.1).
+# This file lives under .github/, which CODEOWNERS maps to @philipz so the
+# agent cannot edit the rules that constrain it
+# (docs/05-guardrails-governance.md §1.1). CODEOWNERS is only consulted when
+# main's branch protection requires review from code owners; no such
+# protection is configured on either trunk today, so the H5 entries below are
+# advisory and nothing currently enforces them.
 
 hard_rules:
   # H1 — authentication and authorization logic
