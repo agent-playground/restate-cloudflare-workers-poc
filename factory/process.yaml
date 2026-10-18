@@ -1,0 +1,41 @@
+# Factory module list (ADR-023 附錄 A.2) — agent-playground/restate-cloudflare-workers-poc
+#
+# 模組是變更治理單位：readiness 由人填並附 evidence（這裡指向 repo 內的文件）。
+# 新增／調整模組請走 PR；系統層級的 process spec 在機制 repo
+# （processes/agent-playground/restate-cloudflare-workers-poc.yaml）。
+system: agent-playground/restate-cloudflare-workers-poc
+modules:
+  - id: checkout
+    paths:
+      - "src/checkout.ts"
+      - "test/checkout.test.ts"
+      - "test/integration_scenarios.test.ts"
+      - "test/harness_fidelity.test.ts"
+    build_unit: "npm test"
+    spec: docs/deepwiki/Checkout-Workflow.md
+    readiness: R1
+    readiness_evidence: docs/deepwiki/Testing-Strategy.md
+    owner: agent-playground
+  - id: game
+    paths:
+      - "src/game.ts"
+      - "src/game_manager.ts"
+      - "test/game.test.ts"
+      - "test/game_manager.test.ts"
+      - "test/game_seatmap.test.ts"
+    build_unit: "npm test"
+    spec: docs/deepwiki/SeatMap-Virtual-Object.md
+    readiness: R1
+    readiness_evidence: docs/deepwiki/Testing-Strategy.md
+    owner: agent-playground
+  - id: payments
+    paths:
+      - "src/utils/payment_new.ts"
+      - "src/utils/email.ts"
+      - "test/payment_new.test.ts"
+      - "test/email.test.ts"
+    build_unit: "npm test"
+    spec: docs/deepwiki/Payment-Simulation.md
+    readiness: R0
+    readiness_evidence: docs/deepwiki/Payment-Simulation.md
+    owner: agent-playground
