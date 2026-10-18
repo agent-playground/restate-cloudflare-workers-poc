@@ -18,8 +18,30 @@ declare module "node:test" {
     ): Promise<void>;
     fail(message?: string): never;
   }
+  // t.mock 的最小表面（對應 Node 22 node:test 運行時）：delay.test.ts 用
+  // fake timers（timers.enable/tick）與間接 spy（method → calls[].arguments）。
+  interface MockCallRecord {
+    arguments: any[];
+    result?: unknown;
+  }
+  interface MockedFunction {
+    (...args: any[]): any;
+    mock: { calls: MockCallRecord[] };
+  }
+  interface MockTimers {
+    enable(options?: { apis?: string[] }): void;
+    tick(ms?: number): void;
+    runAll(): void;
+    reset(): void;
+    setTime(time?: number | string | Date): void;
+  }
+  interface Mock {
+    timers: MockTimers;
+    method(object: any, methodName: string): MockedFunction;
+  }
   interface TestContext {
     assert: Assert;
+    mock: Mock;
   }
   type TestFn = (t: TestContext) => void | Promise<void>;
   interface TestOptions {
