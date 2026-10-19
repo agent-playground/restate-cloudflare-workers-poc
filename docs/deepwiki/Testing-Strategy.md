@@ -525,3 +525,38 @@ The combination of fast local iteration (`test-all.sh`) and production-like vali
  [test-cloud.sh L1-L78](https://github.com/philipz/restate-cloudflare-workers-poc/blob/513fd0f5/test-cloud.sh#L1-L78)
 
  [load-test.js L1-L72](https://github.com/philipz/restate-cloudflare-workers-poc/blob/513fd0f5/load-test.js#L1-L72)
+---
+
+## Readiness evidence — coverage（模組就緒度證據）
+
+`factory/process.yaml` 的 `readiness` 由人填並附證據（`docs/29` §5）。本頁是 `readiness_evidence` 的指向目標。
+
+### 判準（`docs/29` §5）
+
+| 等級 | 判準 | 允許的工作項類型 |
+|---|---|---|
+| R0 | 無法重現建置，或沒有自動化測試，或沒有 CI | analyze／write-docs／add-tests |
+| R1 | 可重現建置＋CI 綠，行覆蓋率 < 60% | R0 ＋ fix-bug（限已覆蓋路徑）／update-deps（限有 CVE） |
+| R2 | 可重現建置＋CI 綠，行覆蓋率 ≥ 60% | 全部 |
+
+### 量測方式（可重現）
+
+```bash
+npm ci --legacy-peer-deps
+npm run test:coverage   # node --test --experimental-test-coverage，內建、無額外相依
+```
+
+`test/loader/test-setup.mjs` 會把 `delay()` 歸零，因此覆蓋率量測不受 500ms／200ms 模擬延遲影響。
+
+### 2026-10-19 量測結果（`software-factory` 分支，commit `b11f498`）
+
+| 模組 | 檔案 | 行覆蓋率 | 判準結論 |
+|---|---|---|---|
+| checkout | `src/checkout.ts` | 100% | **R2** |
+| game | `src/game.ts`、`src/game_manager.ts` | 100% | **R2** |
+| payments | `src/utils/payment_new.ts`、`src/utils/email.ts` | 100% | **R2** |
+| utils | `src/utils/delay.ts` | 100% | **R2** |
+
+全部 75 個測試通過、0 skipped。CI（`Typecheck & test`）在 `software-factory` 分支為綠。
+
+> 覆蓋率是**下限證據**，不取代驗證閘門（`docs/29` §10）：R3 的 TOCTOU 修復由 `test/checkout_view_toctou.test.ts`／`test/seatmap_conditional_write.test.ts` 釘住；回合重置語意由 `test/game_manager_reset_resale.test.ts` 釘住；R2／R4 缺口見 `Saga-Pattern-&-Compensation.md`。

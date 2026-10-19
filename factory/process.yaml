@@ -9,11 +9,12 @@ modules:
     paths:
       - "src/checkout.ts"
       - "test/checkout.test.ts"
+      - "test/checkout_view_toctou.test.ts"
       - "test/integration_scenarios.test.ts"
       - "test/harness_fidelity.test.ts"
     build_unit: "npm test"
     spec: docs/deepwiki/Checkout-Workflow.md
-    readiness: R1
+    readiness: R2
     readiness_evidence: docs/deepwiki/Testing-Strategy.md
     owner: agent-playground
   - id: game
@@ -22,10 +23,12 @@ modules:
       - "src/game_manager.ts"
       - "test/game.test.ts"
       - "test/game_manager.test.ts"
+      - "test/game_manager_reset_resale.test.ts"
       - "test/game_seatmap.test.ts"
+      - "test/seatmap_conditional_write.test.ts"
     build_unit: "npm test"
     spec: docs/deepwiki/SeatMap-Virtual-Object.md
-    readiness: R1
+    readiness: R2
     readiness_evidence: docs/deepwiki/Testing-Strategy.md
     owner: agent-playground
   - id: payments
@@ -36,8 +39,8 @@ modules:
       - "test/email.test.ts"
     build_unit: "npm test"
     spec: docs/deepwiki/Payment-Simulation.md
-    readiness: R0
-    readiness_evidence: docs/deepwiki/Payment-Simulation.md
+    readiness: R2
+    readiness_evidence: docs/deepwiki/Testing-Strategy.md
     owner: agent-playground
   - id: utils
     paths:
@@ -46,6 +49,6 @@ modules:
       - "test/delay.test.ts"
     build_unit: "npm test"
     spec: docs/deepwiki/Utilities-&-Supporting-Services.md
-    readiness: R1
+    readiness: R2
     readiness_evidence: docs/deepwiki/Testing-Strategy.md
     owner: agent-playground
