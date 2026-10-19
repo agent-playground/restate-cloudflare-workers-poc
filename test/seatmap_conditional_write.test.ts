@@ -47,7 +47,7 @@ describe("Issue #82 R3 修復——SeatMap.set(AVAILABLE) 條件寫入（WI-5）
     t.assert.equal(viewOf(itg), "AVAILABLE", "view 與真值一致（可正常釋放）");
   });
 
-  // 核心修復斷言（現行紅燈 → it.skip）：真值已由他人 RESERVED 時，
+  // 核心修復斷言（01-test 層實測紅燈、修復後轉綠）：真值已由他人 RESERVED 時，
   // 過期的 AVAILABLE 回寫必須被條件寫入丟棄，view 維持與真值一致。
   it("真值 RESERVED by 他人 → 丟棄過期的 AVAILABLE 回寫（幽靈可售席位消滅）", async (t) => {
     const itg = createIntegration();
@@ -75,7 +75,7 @@ describe("Issue #82 R3 修復——SeatMap.set(AVAILABLE) 條件寫入（WI-5）
     );
   });
 
-  // 同機制的延伸邊界（現行紅燈 → it.skip）：真值 SOLD（已成交）同樣不得被
+  // 同機制的延伸邊界（01-test 層實測紅燈、修復後轉綠）：真值 SOLD（已成交）同樣不得被
   // 過期的 AVAILABLE 覆蓋——補償路徑若因任何原因帶着過期判斷寫回，不得復活幽靈可售票。
   it("真值 SOLD → 丟棄 AVAILABLE 回寫（已成交席位不得被覆蓋成可售）", async (t) => {
     const itg = createIntegration();

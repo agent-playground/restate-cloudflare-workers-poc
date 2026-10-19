@@ -32,6 +32,11 @@ export const checkoutWorkflow = restate.service({
                 // 此時本 saga 已不再持有該座位，若仍無條件把 view 寫回 AVAILABLE，
                 // 會覆蓋買家較新的 SOLD 寫入（last-writer-wins）而產生永久性「幽靈可售票」。
                 // 因此僅在確實釋放成功時才回寫視圖。
+                // Issue #82（R3／WI-5）：#22 守衛仍殘留 TOCTOU 窗口——release 回 true
+                // 之後、本回寫送達之前，第三人可能已合法接管。SeatMap.set 對 AVAILABLE
+                // 降級現在是**條件寫入**（同一次 handler 執行內讀 Ticket 真值，他人持有
+                // 即丟棄並回 false），故此處帶著過期判斷的回寫最壞是被丟棄（視圖交給下
+                // 一次真值事件收斂），不再產生幽靈可售席位。
                 const released = await ticket.release(userId);
                 if (released) {
                     // Revert SeatMap (View)

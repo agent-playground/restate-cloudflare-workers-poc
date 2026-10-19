@@ -14,6 +14,10 @@
 4.  **Durable Workflows (Checkout)**:
     - 編排整個結帳流程：預留座位 -> 處理支付 -> 確認/釋放座位。
     - 實現 Saga 模式：如果支付失敗，自動執行補償邏輯（釋放座位）。
+    - 補償的視圖回寫是**條件寫入**（Issue #82，分析報告 R3/WI-5）：`SeatMap` 把座位降為
+        `AVAILABLE` 前，於同一次 handler 執行內讀取 `Ticket` 真值；真值已由他人持有
+        （`RESERVED`/`SOLD`）時丟棄該回寫，消滅「釋放成功後、回寫送達前被他人接管」視窗
+        造成的幽靈可售席位。
 
 ### 支付模擬 (Payment Simulation)
 為了確保系統穩定性並避免外部依賴導致的延遲，系統在本地模擬支付處理邏輯 (`src/utils/payment_new.ts`)：
@@ -82,6 +86,8 @@ curl -X POST http://localhost:9070/deployments \
 2.  **支付失敗與補償 (Saga Compensation)**
     - 輸入: `paymentMethodId: "card_decline"`
     - 預期: 回傳 "Payment declined"，座位狀態回滾為 `AVAILABLE`。
+    - 併發邊界（Issue #82）: 若補償視窗內座位已被他人合法接管，真值與視圖均維持接管者
+        的狀態（條件寫入丟棄過期回寫），不得出現「視圖可售、真值不可售」。
 3.  **防止雙重訂票 (Double Booking)**
     - 輸入: 對同一座位連續發送兩次請求。
     - 預期: 第二次請求失敗，顯示 "Seat already sold"。
@@ -195,7 +201,7 @@ k6 run -e LATENCY_P95_MS=2000 load-test.js
 
 ## 📂 專案結構
 
-- `src/game.ts`: **Virtual Objects** - 包含 `Ticket` (座位狀態) 與 `SeatMap` (座位圖聚合)
+- `src/game.ts`: **Virtual Objects** - 包含 `Ticket` (座位狀態) 與 `SeatMap` (座位圖聚合；`set` 降級為 `AVAILABLE` 時採條件寫入，Issue #82)
 - `src/checkout.ts`: **Workflow** - 結帳流程與 Saga 補償
 - `src/utils/payment_new.ts`: 支付邏輯 (本地模擬，無外部相依)
 - `src/utils/email.ts`: 郵件發送邏輯 (模擬)
