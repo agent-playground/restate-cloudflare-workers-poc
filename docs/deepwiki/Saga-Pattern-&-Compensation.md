@@ -16,7 +16,7 @@
 
 1. Saga 步驟清單與「失敗時有無補償」的實際邊界；
 2. 補償路徑的**現況語意**（#22 的「回 true 才回寫」＋ #82 的條件寫入）與它消除的 TOCTOU 視窗；
-3. 補償範圍的**已知缺口**（R2／R1／R4）——僅描述現況，不提出程式修改。
+3. 補償範圍的**已知缺口**（R2／R4）——僅描述現況，不提出程式修改；以及**回合重置全清**（AP1 原列 R1，2026-10-19 裁定為 PoC 設計行為，非缺口）。
 
 關於 Saga 所編排的虛擬物件，見 [Virtual Objects & Serialization](/philipz/restate-cloudflare-workers-poc/8.1-virtual-objects-and-serialization)；關於持久化執行與重播安全（`ctx.run`），見 [Durable Execution & ctx.run](/philipz/restate-cloudflare-workers-poc/8.2-durable-execution-and-ctx.run)；完整工作流程實作見 [Checkout Workflow](/philipz/restate-cloudflare-workers-poc/2.3-checkout-workflow)。
 
@@ -194,7 +194,7 @@ Step 6: ctx.run("send-email")
 
 ---
 
-## 補償範圍的已知缺口（R2／R1／R4）
+## 補償範圍的已知缺口（R2／R4）
 
 > 本節**以 AP1 分析報告（Issue #76）為準**、只描述現況缺口，**不提出程式修改**（修復方向與工作項建議見該報告 §5–§6，放行與開單由人類裁定）。
 > 證據等級定義（同 AP1 §3）：**【實測】**＝沙箱內以真實 handler 接線的整合式 harness（`test/helpers/integration.ts`）重現；**【推論】**＝由碼路與執行期語意推斷、沙箱無法執行該執行期機制（持久化／重播／多機並行），需生產 Restate E2E 驗證。
@@ -202,8 +202,9 @@ Step 6: ctx.run("send-email")
 | 缺口 | 情境 | 觸發條件 | 現況補償行為 | 證據等級 | 優先序（AP1） |
 |---|---|---|---|---|---|
 | **R2** | 付款成功後 `confirm` 失敗 | 付款完成與 `confirm` 之間停頓跨越 15 分鐘 TTL，期間他人接管座位 | **不退款、不釋放、不回寫視圖**——已扣款者錢票兩空 | 實測（E2；交錯後果）／生產停頓原因屬推論 | P0 |
-| **R1** | auto-reset 雙重銷售 | 任一 `set` 使 `soldCount ≥ 50` → fire-and-forget `GameManager.reset` → 無身分 `release()` | 已 SOLD 票券被無聲清回 `AVAILABLE`，同一座位可被再次完整售出；首位買家無退款／通知 | 實測（E1） | P0 |
 | **R4** | 重放重複扣款 | `ctx.run` 結果寫入 journal 前崩潰 → 重放 → `processPayment` 閉包再執行 | 無任何防護：付款不帶冪等鍵、mock gateway 不去重 | **推論**（需生產 E2E） | P1 |
+
+> AP1 原列的 **R1（auto-reset 後同座位再售）不在此表**：2026-10-19 產品裁定為 PoC 的回合重置設計行為（全部清空、SOLD 不退款），見下方「回合重置全清」一節。
 
 ### R2：付款成功後 confirm 失敗——零補償（錢票兩空）
 
@@ -211,15 +212,20 @@ Step 6: ctx.run("send-email")
 
 **Sources:** [src/checkout.ts L20–L51](https://github.com/agent-playground/restate-cloudflare-workers-poc/blob/software-factory/src/checkout.ts#L20-L51)、AP1 §1.1／§3.2
 
-### R1：auto-reset 抹除已成交真值 → 同一座位雙重銷售
+### 回合重置全清（AP1 原列 R1）——PoC 設計行為，非缺口
 
-`SeatMap.set` 在寫入後統計 `soldCount >= 50`（game.ts:153–167）即 fire-and-forget 觸發 `GameManager.reset`（game_manager.ts:7–17）：後者先以 `seatMapObject.reset()` 清空視圖（game.ts:171–177），再對 seat-1..50 逐一發出**無身分的 `release()`**。`Ticket.release` 的守衛只在 `userId !== undefined` 時檢查（game.ts:92–99），因此**無參數呼叫完全無守衛**——已付款（`SOLD`）的票券被直接清回 `AVAILABLE`。E1 實測：50 席全部完成「扣款＋confirm＋發信」→ auto-reset 投遞 → mallory 對 seat-1 再次完整結帳**成功**（同席第二次 `confirm` 成功、全程 `process-payment` 51 次）；`user-1` 的扣款沒有任何退款或失效通知路徑，其「Booking Confirmed」信件成為虛假憑證。回合制 auto-reset 是刻意設計（`load-test.js` 依賴），湊滿 50 是常態事件。
+> **產品裁定（2026-10-19）**：本專案是 PoC，auto-reset 是「回合重置」——**全部清空、已售出（SOLD）票不退款**，重置後同一座位可在新回合再次售出。AP1 建議的修復（WI-2：重置只釋放 RESERVED、或對 SOLD 退款）**已否決**，不會開 agent-fix-bug。行為由 `test/game_manager_reset_resale.test.ts` 以規格測試釘住：若有人把它當 bug 修掉，該測試會紅，須先改裁定。
+>
+> 以下保留機制說明。
+
+
+`SeatMap.set` 在寫入後統計 `soldCount >= 50`（game.ts:153–167）即 fire-and-forget 觸發 `GameManager.reset`（game_manager.ts:7–17）：後者先以 `seatMapObject.reset()` 清空視圖（game.ts:171–177），再對 seat-1..50 逐一發出**無身分的 `release()`**。`Ticket.release` 的守衛只在 `userId !== undefined` 時檢查（game.ts:92–99），因此**無參數呼叫完全無守衛**——已付款（`SOLD`）的票券被直接清回 `AVAILABLE`。E1 實測：50 席全部完成「扣款＋confirm＋發信」→ auto-reset 投遞 → mallory 對 seat-1 再次完整結帳**成功**（同席第二次 `confirm` 成功、全程 `process-payment` 51 次）。依裁定，上一回合的扣款不退款、不另行通知。回合制 auto-reset 是刻意設計（`load-test.js` 依賴），湊滿 50 是常態事件。
 
 **Sources:** [src/game.ts L153–L177](https://github.com/agent-playground/restate-cloudflare-workers-poc/blob/software-factory/src/game.ts#L153-L177)、[src/game_manager.ts L7–L17](https://github.com/agent-playground/restate-cloudflare-workers-poc/blob/software-factory/src/game_manager.ts#L7-L17)、AP1 §3.1
 
 ### R4：扣款非冪等 × `ctx.run` at-least-once → 崩潰重放可重複扣款【推論】
 
-`processPayment`（payment_new.ts:3–21）不帶冪等鍵；雲端 mock gateway（index.ts:12–35）亦不去重。Restate 的 `ctx.run` 對副作用是 **at-least-once**：結果寫入 journal 前崩潰、重放時閉包會再執行一次——同一筆付款可能被扣兩次。日常「同一票第二人付款」會被 Ticket 狀態機擋下（R1 的重置路徑反而是例外），所以雙扣需要 crash-重放路徑；本沙箱 harness 不模擬持久化／重播，故只能推論，需生產 Restate E2E（`test-all.sh` 範疇）驗證。
+`processPayment`（payment_new.ts:3–21）不帶冪等鍵；雲端 mock gateway（index.ts:12–35）亦不去重。Restate 的 `ctx.run` 對副作用是 **at-least-once**：結果寫入 journal 前崩潰、重放時閉包會再執行一次——同一筆付款可能被扣兩次。日常「同一票第二人付款」會被 Ticket 狀態機擋下（回合重置路徑除外，見上節），所以雙扣需要 crash-重放路徑；本沙箱 harness 不模擬持久化／重播，故只能推論，需生產 Restate E2E（`test-all.sh` 範疇）驗證。
 
 **Sources:** [src/utils/payment_new.ts L3–L21](https://github.com/agent-playground/restate-cloudflare-workers-poc/blob/software-factory/src/utils/payment_new.ts#L3-L21)、AP1 §3.4
 
@@ -303,7 +309,7 @@ stateDiagram-v2
     RESERVED --> AVAILABLE : release(userId)<br/>（僅保留者本人，補償路徑）
     RESERVED --> RESERVED : 他人 reserve 於 TTL 逾期後接手<br/>（逾期自動釋放 → 立即保留）
     SOLD --> SOLD : 同主 confirm 冪等回 true／<br/>異主 confirm 拋 TerminalError
-    SOLD --> AVAILABLE : ⚠ 僅 GameManager.reset 的<br/>無身分 release()（守衛跳過 → R1）
+    SOLD --> AVAILABLE : 回合重置：GameManager.reset 的<br/>無身分 release()（設計行為，2026-10-19 裁定）
 
     note right of RESERVED
         reserve 對仍有效之 RESERVED

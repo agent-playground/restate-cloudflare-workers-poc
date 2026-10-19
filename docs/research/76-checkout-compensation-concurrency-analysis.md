@@ -20,6 +20,9 @@
 
 **優先序**：R2（付款後無補償）與 R1（重置雙重銷售）為 P0——兩者都是「使用者已被扣款而系統無補償路徑」的資金類缺陷，且 R1 的觸發條件（湊滿 50）可決定性重現、R2 的交錯視窗在生產（付款重試、worker 暫停、TTL 15 分鐘遠大於正常流程）反而更寬。R3 為 P2（真值仍受守衛保護，損害限於視圖一致性與 UI 誤導）。R4/R5 為待驗證的 P1/P2。
 
+> **【2026-10-19 產品裁定】R1 不是缺陷**：本專案是 PoC，auto-reset 是回合重置——全部清空、SOLD 不退款，重置後同座位可在新回合再售。§3.1 的分析保留作為機制紀錄；§5 的 R1 建議與 §6 的 WI-2 已否決，不開 agent-fix-bug。行為已由 `test/game_manager_reset_resale.test.ts` 以規格測試釘住。
+
+
 ---
 
 ## 2. 現行補償路徑與併發控制（Issue 要求 1）
@@ -51,6 +54,8 @@
 實測方式：以下 E1–E3 以 repo 既有整合式 harness（`test/helpers/integration.ts`，真實 handler 接線＋受控時鐘＋`ctx.run` hook 插隊）驅動，腳本與完整輸出見附錄 A；每次執行皆 `RESULT: ALL-REPRO-CONFIRMED`（13/13 檢查）。**標註【實測】＝本次沙箱內以真實 handler 重現；【推論】＝由碼路與執行期語意推斷、沙箱無法執行該執行期機制（持久化／重播／多機並行，見 `integration.ts:24–29` 自我限制的說明）。**
 
 ### 3.1 R1【實測 E1】auto-reset 抹除已成交真值 → 同一座位雙重銷售、首位買家無退款
+
+> **2026-10-19 裁定**：此行為為 PoC 設計（回合重置全清、SOLD 不退款），不修。以下為原始分析，保留作機制紀錄。
 
 - **觸發條件**：任何使 SeatMap `soldCount >= 50` 的寫入（`game.ts:138–139`）→ `GameManager.reset` fire-and-forget（`game.ts:150`；`game_manager.ts:11–17`）→ 50 張票**無身分 `release()`** → 守衛跳過（`game.ts:92`）→ SOLD 票回 `AVAILABLE`。
 - **交錯時序（E1）**：50 席全部走完完整 checkout（各自扣款＋confirm＋發信成功）→ auto-reset 投遞 → seat-1 真值 AVAILABLE → mallory 再次完整結帳 seat-1 成功。實測斷言：`Ticket:seat-1` 的 `confirm` 真實 handler 對 `user-1` 與 `mallory` 各成功一次；全程 `process-payment` 51 次、`send-email` 51 次；`user-1` 的扣款**沒有任何退款或失效通知路徑**。
@@ -114,7 +119,7 @@
 | # | 類型 | 標題 | 驗收條件草案（可觀察結果） |
 |---|---|---|---|
 | WI-1 | agent-fix-bug | 補償範圍對稱化：付款後失敗須退款＋收斂（R2，含 S3 characterization 翻綠） | ① 新增整合測試：以受控時鐘＋run hook 重現本報告 E2 時序，斷言修復後「退款 run 被執行、票券不殘留本人保留、SeatMap 與真值一致、`TerminalError` 仍外拋」；修復前紅／後綠。② `src/utils/payment_new.ts` 提供 `refund` 且被補償路徑以 `ctx.run` 呼叫。③ `npm test` 全綠、既有 64 條斷言不刪減（S3 的 RESERVED 殘留斷言允許翻為修復語意並在 PR 描述引用本報告）。 |
-| WI-2 | agent-fix-bug | GameManager.reset 不得回收已 SOLD 票券（R1） | ① 新增整合測試：50 席完整售出→重置投遞→對 seat-1 再次 checkout，斷言第二次結帳必須失敗（或走明确退款分支，依人類裁定），不得出現同席兩次 `confirm` 成功；修復前紅／後綠。② `release()` 無參數呼叫的 SOLD 特例以显式參數（如 `allowSold`）取代，重置呼叫端同步更新；`game.test.ts:182–188` 的 characterization 依裁定翻綠或改寫並在 PR 說明。③ `npm test` 全綠。 |
+| WI-2 | ~~agent-fix-bug~~ **已否決（2026-10-19 產品裁定：回合重置全清、SOLD 不退款）** | ~~GameManager.reset 不得回收已 SOLD 票券（R1）~~ | ① 新增整合測試：50 席完整售出→重置投遞→對 seat-1 再次 checkout，斷言第二次結帳必須失敗（或走明确退款分支，依人類裁定），不得出現同席兩次 `confirm` 成功；修復前紅／後綠。② `release()` 無參數呼叫的 SOLD 特例以显式參數（如 `allowSold`）取代，重置呼叫端同步更新；`game.test.ts:182–188` 的 characterization 依裁定翻綠或改寫並在 PR 說明。③ `npm test` 全綠。 |
 | WI-3 | agent-add-tests | 把本報告 E1–E3 固化為回歸測試（含補齊 Issue #17 缺席的 S5） | ① E3（release=true 後視圖覆蓋）以真實 handler 次序寫成整合測試，斷言現況 view≠truth（characterization，`it.skip` 或註明現況），並附「修復後應成立」的斷言方向。② 於 Issue #17 上下文確認 S5 原意並補測或留言記錄缺席原因。③ 全部在既有實作上綠燈（characterization 除外，依 add-tests 規則 `it.skip` 交付）。 |
 | WI-4 | agent-analyze（雲端） | 生產 Restate 環境驗證 R4/R5：ctx.run at-least-once 與 reserve 重放語意 | ① 於 `test-all.sh`／workerd 部署以 kill-and-resume 注入崩潰，觀察 process-payment 實際執行次數與 reserve 重放行為。② 產出證據報告至 `docs/research/`，不做程式變更。 |
 | WI-5 | agent-fix-bug（低優先） | SeatMap 條件寫入消滅 R3 窗口 | ① `set` 支援 expected-owner/status 參數；補償回寫僅在條件成立時生效。② WI-3 的 E3 characterization 測試翻綠（視圖恆等於真值或最終收斂）。③ `npm test` 全綠。 |

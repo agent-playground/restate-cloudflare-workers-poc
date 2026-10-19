@@ -1,25 +1,19 @@
-// test/game_manager_reset_resale.test.ts — Issue #87（AP3）：釘住 auto-reset 雙重銷售（R1）。
+// test/game_manager_reset_resale.test.ts — 回合重置（auto-reset）的規格測試。
 //
-// 依 AP1 分析（docs/research/76-checkout-compensation-concurrency-analysis.md §3.1 R1）：
-// 湊滿 50 SOLD 觸發的 auto-reset 經 GameManager.reset 對 seat-1..50 發出「無身分的
-// release()」（src/game_manager.ts:15–17），Ticket.release 的守衛只在帶 userId 時才
-// 檢查（src/game.ts:92–99）→ 已付款（SOLD）票被清回 AVAILABLE，同一座位可再被完整
-// 售出（雙重銷售、首位買家無退款）。
+// 【產品裁定 2026-10-19】本專案是 PoC：湊滿 50 SOLD 觸發的 auto-reset 是「回合重置」，
+// **全部清空、已售出（SOLD）票不退款**，重置後同一座位可在新回合再次售出——這是
+// 設計行為，不是缺陷。AP1 分析（docs/research/76-checkout-compensation-concurrency-analysis.md
+// §3.1）原列為 R1／P0 並建議 WI-2 修復；WI-2 已被否決，不會開 agent-fix-bug。
 //
-// 既有覆蓋缺口：
-// - test/game_manager.test.ts 只驗證 reset 有發出 release（呼叫形状 characterization）；
-// - test/game.test.ts:182–188 只釘 handler 層「無參數 release 會釋放 SOLD」；
-// - test/integration_scenarios.test.ts S6 只釘「重置鏈條序列化投遞」；
-// 「重置後同座位第二次完整 checkout 成功＝雙重銷售」的業務後果未曾被釘住。
+// 機制：GameManager.reset 對 seat-1..50 發出無身分的 release()（src/game_manager.ts），
+// Ticket.release 的守衛只在帶 userId 時才檢查（src/game.ts）→ SOLD 票被清回 AVAILABLE。
 //
-// 本檔以既有整合式 harness（test/helpers/integration.ts，真實 handler 接線）補兩條測試：
-//   1. characterization（綠燈）：50 席完整售出 → 投遞 reset → seat-1 再次完整 checkout
-//      成功，斷言同一座位兩次 confirm 成功——誠實釘住現行缺陷，供修復後翻綠比對。
-//   2. 應然斷言（it.skip 交付）：「重置後已 SOLD 的座位不得被再次售出」——現行實作
-//      必紅（非測試自身錯誤），依 docs/29 agent-add-tests 規則以 it.skip 保留完整斷言，
-//      建議另開 agent-fix-bug（AP1 報告 WI-2；修法涉商業規則，需人裁定）。
+// 本檔把這個行為釘成規格（Issue #87 交付時以 characterization 釘住，裁定後改為規格）：
+// 若日後有人把「重置後同座位可再售」當成 bug 修掉，這條測試會紅——那必須先改產品裁定。
+// Issue #87 原本以 it.skip 交付的「重置後不得再售」應然斷言已移除：它斷言的是被否決的需求，
+// 保留會誤導日後的工作項把它 un-skip。
 import { describe, it } from "node:test";
-import { createIntegration, TerminalError } from "./helpers/integration";
+import { createIntegration } from "./helpers/integration";
 import type { TicketState } from "../src/game";
 
 /** 走完整 checkout saga（reserve→扣款→confirm→SOLD 回寫→發信）賣出一席。 */
@@ -40,9 +34,9 @@ function ticketState(itg: ReturnType<typeof createIntegration>, key: string): Ti
   return itg.stateOf("Ticket", key).data.state as TicketState;
 }
 
-describe("Issue #87 R1——auto-reset 雙重銷售（characterization：釘住現行缺陷）", () => {
-  // source: Issue #87 驗收條件 1；AP1 報告 §3.1 E1（docs/research/76-checkout-compensation-concurrency-analysis.md）
-  it("50 席完整售出→投遞 reset→seat-1 再次完整 checkout 成功：同一座位兩次 confirm（現行缺陷）", async (t) => {
+describe("回合重置（auto-reset）規格：全部清空、SOLD 不退款（PoC 產品裁定 2026-10-19）", () => {
+  // source: Issue #87（AP3）；AP1 報告 §3.1 E1；產品裁定見檔頭。
+  it("50 席完整售出→投遞 reset→seat-1 在新回合再次完整 checkout 成功（設計行為）", async (t) => {
     const itg = createIntegration();
 
     // 第一輪：50 席各自走「完整」checkout saga——每席都真實扣款、confirm、發信。
@@ -66,18 +60,17 @@ describe("Issue #87 R1——auto-reset 雙重銷售（characterization：釘住�
     // 投遞全部待辦：GameManager.reset → SeatMap.reset ＋ 50 張「無身分」release()。
     await itg.drain();
 
-    // 機制層釘選：已付款（SOLD）票被無身分 release 清回 AVAILABLE（src/game.ts:92–99
-    // 的守衛只在 userId !== undefined 時檢查——重置路徑帶過）。
+    // 回合重置全清：已付款（SOLD）票被無身分 release 清回 AVAILABLE（src/game.ts
+    // 的守衛只在 userId !== undefined 時檢查——重置路徑刻意帶過）。
     const afterReset = ticketState(itg, "seat-1");
-    t.assert.equal(afterReset.status, "AVAILABLE", "現行行為：SOLD 票被 reset 回收");
+    t.assert.equal(afterReset.status, "AVAILABLE", "規格：回合重置把 SOLD 票清回 AVAILABLE");
     t.assert.equal(afterReset.reservedBy, null);
 
-    // 業務後果：mallory 對 seat-1 再次「完整」checkout——reserve、扣款、confirm
-    // 全程成功，現行實作無法拒絕。
+    // 新回合：mallory 對 seat-1 再次「完整」checkout——reserve、扣款、confirm 全程成功。
     t.assert.equal(
       await sellSeat(itg, 1, "mallory"),
       "Booking Confirmed",
-      "現行缺陷：重置後同座位第二次完整結帳成功"
+      "規格：重置後同座位可在新回合再次售出"
     );
 
     // 核心斷言：同一座位（seat-1）出現兩次 confirm 真實 handler 呼叫且都成功
@@ -93,9 +86,8 @@ describe("Issue #87 R1——auto-reset 雙重銷售（characterization：釘住�
       "兩次 confirm 分別屬第一輪買家與重置後買家"
     );
 
-    // 資金與下游後果釘選：seat-1 上 process-payment 與 send-email 各執行兩次
-    // （user-1 的 100 元滯留、全 repo 無退款路徑——AP1 §1 第 1 點），
-    // 最終真值 SOLD 給 mallory（首位買家失去座位）。
+    // 資金與下游：兩輪付款與發信都執行（SOLD 不退款是產品裁定，無退款路徑是預期），
+    // 最終真值 SOLD 給新回合買家 mallory。
     const seat1CheckoutRuns = itg.world.runs.filter(
       (r) => r === "Checkout.process-payment" || r === "Checkout.send-email"
     );
@@ -103,43 +95,5 @@ describe("Issue #87 R1——auto-reset 雙重銷售（characterization：釘住�
     const finalState = ticketState(itg, "seat-1");
     t.assert.equal(finalState.status, "SOLD");
     t.assert.equal(finalState.reservedBy, "mallory");
-  });
-});
-
-describe("Issue #87 R1——應然：重置後已 SOLD 的座位不得被再次售出", () => {
-  // source: Issue #87 驗收條件 2；AP1 報告 §3.1（修復方向 WI-2：release() 無參數
-  // 呼叫的 SOLD 特例需人類裁定商業規則後由 agent-fix-bug 實作）。
-  //
-  // 本測試在現行實作上必紅（非測試自身錯誤）：無身分 release 會把 SOLD 清回
-  // AVAILABLE，第二次 checkout 完整成功。依 docs/29 agent-add-tests 規則以 it.skip
-  // 交付——斷言完整保留，修復（WI-2）合併後 un-skip 應翻綠。
-  it.skip("auto-reset 投遞後：SOLD 真值保留、同座位再次結帳必須失敗", async (t) => {
-    const itg = createIntegration();
-
-    for (let i = 1; i <= 50; i++) {
-      t.assert.equal(await sellSeat(itg, i, `user-${i}`), "Booking Confirmed");
-    }
-    await itg.drain(); // 投遞 auto-reset
-
-    // 應然 ①：重置不得抹除已收款（SOLD）交易——真值仍屬首位買家。
-    const afterReset = ticketState(itg, "seat-1");
-    t.assert.equal(afterReset.status, "SOLD", "應然：SOLD 票不得被無身分 release 清回收賣");
-    t.assert.equal(afterReset.reservedBy, "user-1");
-
-    // 應然 ②：同座位第二次完整結帳必須失敗（TerminalError），不得再成交。
-    await t.assert.rejects(
-      async () => await sellSeat(itg, 1, "mallory"),
-      (err: Error) => err instanceof TerminalError,
-      "應然：已售出座位不得被再次售出"
-    );
-
-    // 應然 ③：同一座位 confirm 成功至多一次；最終真值未被第二買家取得。
-    const seat1Confirms = itg.world.calls.filter(
-      (c) => c.service === "Ticket" && c.key === "seat-1" && c.handler === "confirm"
-    );
-    t.assert.equal(seat1Confirms.length, 1, "應然：seat-1 僅一次 confirm");
-    const finalState = ticketState(itg, "seat-1");
-    t.assert.equal(finalState.status, "SOLD");
-    t.assert.equal(finalState.reservedBy, "user-1");
   });
 });
