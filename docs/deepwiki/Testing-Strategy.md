@@ -3,6 +3,7 @@
 > **Relevant source files**
 > * [README.md](https://github.com/philipz/restate-cloudflare-workers-poc/blob/513fd0f5/README.md)
 > * [load-test.js](https://github.com/philipz/restate-cloudflare-workers-poc/blob/513fd0f5/load-test.js)
+> * [Test Harness（測試執行基礎設施）](Test-Harness.md) — 程序內 unit／integration harness（`npm test`）
 > * [test-all.sh](https://github.com/philipz/restate-cloudflare-workers-poc/blob/513fd0f5/test-all.sh)
 > * [test-cloud.sh](https://github.com/philipz/restate-cloudflare-workers-poc/blob/513fd0f5/test-cloud.sh)
 
@@ -15,6 +16,8 @@ The testing strategy consists of three primary components:
 * **Functional Tests**: Validate business logic, state transitions, and error handling ([5.1](/philipz/restate-cloudflare-workers-poc/5.1-local-testing))
 * **Cloud Validation**: Verify deployment correctness in managed Restate Cloud ([5.2](/philipz/restate-cloudflare-workers-poc/5.2-cloud-validation))
 * **Load Testing**: Measure system behavior under concurrent load and contention ([5.3](/philipz/restate-cloudflare-workers-poc/5.3-load-testing))
+
+除上述三種「需要 Restate server」的端到端組件外，repo 另有一層**程序內**測試：`npm test` 用 Node 原生 `node:test` 加上自訂 ESM loader，在沒有 Restate server、沒有 workerd 的環境裡直接執行 `src/` 的真實 handler（鏡像 stub 取代 SDK）。這一層是 CI 的 PR 閘門，與本文件的 E2E 組件互不取代；其攔截機制、stub 邊界、`test/helpers/` 兩層 harness 與「新增一個測試的步驟」見 **[Test-Harness](Test-Harness.md)**。
 
 For information about the core services being tested, see [Core Services](/philipz/restate-cloudflare-workers-poc/2-core-services). For deployment procedures, see [Development & Deployment](/philipz/restate-cloudflare-workers-poc/6-development-and-deployment).
 
@@ -514,6 +517,7 @@ The combination of fast local iteration (`test-all.sh`) and production-like vali
 
 **Related Pages**:
 
+* [Test Harness](Test-Harness.md) - 程序內 unit／integration harness：ESM loader 攔截、鏡像 SDK、`test/helpers/`、新增測試步驟
 * [5.1 Local Testing](/philipz/restate-cloudflare-workers-poc/5.1-local-testing) - Detailed coverage of test-all.sh scenarios
 * [5.2 Cloud Validation](/philipz/restate-cloudflare-workers-poc/5.2-cloud-validation) - Cloud deployment verification procedures
 * [5.3 Load Testing](/philipz/restate-cloudflare-workers-poc/5.3-load-testing) - In-depth load testing configuration and analysis

@@ -14,6 +14,7 @@
 - [Payment-Simulation](Payment-Simulation.md)
 - [Email-Service](Email-Service.md)
 - [Testing-Strategy](Testing-Strategy.md)
+- [Test-Harness](Test-Harness.md)
 - [Local-Testing](Local-Testing.md)
 - [Cloud-Validation](Cloud-Validation.md)
 - [Load-Testing](Load-Testing.md)
