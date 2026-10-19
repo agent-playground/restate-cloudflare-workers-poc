@@ -39,3 +39,13 @@ modules:
     readiness: R0
     readiness_evidence: docs/deepwiki/Payment-Simulation.md
     owner: agent-playground
+  - id: utils
+    paths:
+      - "src/utils/delay.ts"
+      - "src/utils/logger.ts"
+      - "test/delay.test.ts"
+    build_unit: "npm test"
+    spec: docs/deepwiki/Utilities-&-Supporting-Services.md
+    readiness: R1
+    readiness_evidence: docs/deepwiki/Testing-Strategy.md
+    owner: agent-playground
