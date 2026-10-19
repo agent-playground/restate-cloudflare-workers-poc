@@ -1,0 +1,18 @@
+docs/deepwiki/Saga-Pattern-&-Compensation.md
+  h_1b119f25eaf333 19,197,207-208,215-220,222,228,312
+docs/research/76-checkout-compensation-concurrency-analysis.md
+  h_1b119f25eaf333 23-25,58-59,122
+test/game_manager_reset_resale.test.ts
+  h_1b119f25eaf333 1,3-6,8-9,11-14,16,37-39,63-64,66,69,73,89-90
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ed84e74bdf1a9231a53b91f0966b1cb110c8f5de",
+  "prompts": {},
+  "humans": {
+    "h_1b119f25eaf333": {
+      "author": "philipz <philipzheng@gmail.com>"
+    }
+  }
+}
