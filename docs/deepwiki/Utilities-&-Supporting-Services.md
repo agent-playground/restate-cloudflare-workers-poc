@@ -4,6 +4,7 @@
 > * [src/index.ts](https://github.com/philipz/restate-cloudflare-workers-poc/blob/513fd0f5/src/index.ts)
 > * [src/utils/email.ts](https://github.com/philipz/restate-cloudflare-workers-poc/blob/513fd0f5/src/utils/email.ts)
 > * [src/utils/payment_new.ts](https://github.com/philipz/restate-cloudflare-workers-poc/blob/513fd0f5/src/utils/payment_new.ts)
+> * [src/utils/delay.ts](../../src/utils/delay.ts)
 
 ## Purpose and Scope
 
@@ -225,6 +226,54 @@ These delays serve two purposes:
  [src/utils/payment_new.ts L5](https://github.com/philipz/restate-cloudflare-workers-poc/blob/513fd0f5/src/utils/payment_new.ts#L5-L5)
 
  [src/utils/email.ts L7](https://github.com/philipz/restate-cloudflare-workers-poc/blob/513fd0f5/src/utils/email.ts#L7-L7)
+
+---
+
+## Injectable delay
+
+上一節所列的固定延遲，目前統一收攏到 `src/utils/delay.ts` 這個可注入的延遲抽象：`processPayment`、`sendEmail` 與 mock gateway 端點不再各自內嵌 `setTimeout`，而是 `await delay(ms)`，延遲實作可在執行期被替換。本節說明其存在理由、API、測試用法與明確邊界。
+
+### 為什麼需要
+
+* `processPayment`（500ms）、`sendEmail`（200ms）、mock gateway（500ms）以延遲模擬**外部 I/O latency**——這是正式環境的刻意行為。
+* 但在單元測試中，這些等待與被測邏輯無關：若每個相關案例都真的睡滿，測試套件的 wall time 幾乎全是 sleep，會拖慢整個套件。
+* 解法是**顯式注入**：測試注入零延遲實作讓延遲歸零，正式路徑維持真實計時器，且零新增 npm 相依。
+
+### API
+
+| 函式 | 簽名 | 行為 |
+| --- | --- | --- |
+| `delay` | `delay(ms: number): Promise<void>` | 等待 `ms` 毫秒；實際走「目前注入的實作」，預設為真實 `setTimeout` |
+| `setDelayImpl` | `setDelayImpl(fn: DelayFn): void` | 以 `fn` 取代 `delay()` 使用的實作（`DelayFn = (ms: number) => Promise<void>`，自本模組匯出）；注入零延遲實作後，`delay()` 不再建立任何計時器 |
+| `resetDelayImpl` | `resetDelayImpl(): void` | 還原為預設的真實計時器實作 |
+
+### 用法：測試如何歸零延遲
+
+`test/loader/test-setup.mjs` 在測試啟動時全域注入零延遲實作；`package.json` 的 `test` script 以 `--import` 在 loader 註冊之後載入它，使 harness 與測試看到同一份模組實例，`src/` 內所有 `delay()` 呼叫在測試期間立即 resolve：
+
+```ts
+import { setDelayImpl } from "../../dist/src/utils/delay.js";
+
+setDelayImpl(() => Promise.resolve()); // 延遲歸零
+```
+
+這不會削弱任何斷言：延遲長度本身從未被測試斷言，被驗證的是回傳值、拋錯型別與狀態轉移；需要驗證「時間」語意的測試（如 TTL 逾期）走 harness 的受控時鐘，與此注入無關。
+
+需要驗證延遲機制本身的測試（如 `test/delay.test.ts`）則相反：先呼叫 `resetDelayImpl()` 撤銷零延遲注入、回到預設實作（通常搭配 Node 內建 fake timers `t.mock.timers` 受控觸發，不必真的睡眠），並在 `afterEach` 重新 `setDelayImpl(() => Promise.resolve())` 恢復套件的全域前提，避免對模組單例的改動洩漏給後續測試。
+
+### 明確邊界
+
+* **不讀環境變數**：Workers 執行期沒有 `process.env`，本模組不做任何環境偵測開關，一律以顯式注入（`setDelayImpl`／`resetDelayImpl`）取代。
+* **正式路徑沒有測試專用分支**：未注入時 `delay()` 的預設實作等價於原本的 `await new Promise(resolve => setTimeout(resolve, ms))`，行為與收攏前完全一致；產品程式碼中不存在「如果是在測試中」的判斷。
+* 本模組只負責「等待」：不讀設定、不打日誌、無其他副作用。
+
+**Sources:** [src/utils/delay.ts](../../src/utils/delay.ts)
+
+ [test/loader/test-setup.mjs](../../test/loader/test-setup.mjs)
+
+ [src/utils/payment_new.ts](../../src/utils/payment_new.ts)
+
+ [src/utils/email.ts](../../src/utils/email.ts)
 
 ---
 
