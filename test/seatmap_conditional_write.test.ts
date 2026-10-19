@@ -15,8 +15,9 @@
 // 真值；真值仍由他人持有（RESERVED/SOLD）時**丟棄該寫入並回傳 false**，視圖收斂交給
 // 下一次真值事件。合法補償（release 成功且未被接管）不受影響。
 //
-// 交付形態（agent-fix-bug 規則）：在既有實作上紅燈的測試以 it.skip 提交、斷言完整保留
-// （紅燈證據見 Issue #82 留言／PR 描述）；02-impl 層連同修復一併 un-skip。
+// 交付形態（agent-fix-bug 規則）：上述兩條紅燈測試於 01-test 層以 it.skip 提交、斷言
+// 完整保留（沙箱實測紅，證據見 PR #<01> 描述與 Issue #82 留言）；本層連同
+// src/game.ts 條件寫入修復一併 un-skip 轉綠。
 import { describe, it } from "node:test";
 import { createIntegration, TerminalError } from "./helpers/integration";
 import type { IntegrationWorld } from "./helpers/integration";
@@ -48,7 +49,7 @@ describe("Issue #82 R3 修復——SeatMap.set(AVAILABLE) 條件寫入（WI-5）
 
   // 核心修復斷言（現行紅燈 → it.skip）：真值已由他人 RESERVED 時，
   // 過期的 AVAILABLE 回寫必須被條件寫入丟棄，view 維持與真值一致。
-  it.skip("真值 RESERVED by 他人 → 丟棄過期的 AVAILABLE 回寫（幽靈可售席位消滅）", async (t) => {
+  it("真值 RESERVED by 他人 → 丟棄過期的 AVAILABLE 回寫（幽靈可售席位消滅）", async (t) => {
     const itg = createIntegration();
     // A 的 saga 前半＋補償 release（#22 守衛放行：檢查當下仍由 alice 持有）
     await itg.ticket(SEAT).reserve("alice");
@@ -76,7 +77,7 @@ describe("Issue #82 R3 修復——SeatMap.set(AVAILABLE) 條件寫入（WI-5）
 
   // 同機制的延伸邊界（現行紅燈 → it.skip）：真值 SOLD（已成交）同樣不得被
   // 過期的 AVAILABLE 覆蓋——補償路徑若因任何原因帶着過期判斷寫回，不得復活幽靈可售票。
-  it.skip("真值 SOLD → 丟棄 AVAILABLE 回寫（已成交席位不得被覆蓋成可售）", async (t) => {
+  it("真值 SOLD → 丟棄 AVAILABLE 回寫（已成交席位不得被覆蓋成可售）", async (t) => {
     const itg = createIntegration();
     await itg.ticket(SEAT).reserve("alice");
     await itg.seatMap.set({ seatId: SEAT, status: "RESERVED" });

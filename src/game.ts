@@ -130,6 +130,22 @@ export const seatMapObject = restate.object({
     name: "SeatMap",
     handlers: {
         set: async (ctx: restate.ObjectContext, data: { seatId: string, status: string }) => {
+            // Issue #82（R3／WI-5）條件寫入：把 view 降級為 AVAILABLE 的寫入（補償回寫）
+            // 必須附帶前置條件——在 SeatMap 這個虛擬物件的「同一次 handler 執行」內讀取該席
+            // Ticket 真值；真值仍由他人持有（RESERVED/SOLD）時丟棄寫入（回傳 false），
+            // 視圖收斂交給下一次真值事件。消滅 #22 修復殘留的 TOCTOU：
+            // 「release 回 true 之後、seatMap.set(AVAILABLE) 送達之前被他人接管」——
+            // 檢查與寫入不再分屬兩次跨物件呼叫，而被 SeatMap 的 exclusive 序列化於一處。
+            // 註：Restate 環境與整合 harness 中 Ticket.get 必回值（未建 slot 落回預設
+            // AVAILABLE）；undefined 只可能來自 recorder stub ctx（POC 測試替身），
+            // 此時維持寫入（stub ctx 本就無真值可比較）。
+            if (data.status === "AVAILABLE") {
+                const truth = await ctx.objectClient<TicketObject>(ticketObject, data.seatId).get();
+                if (truth && truth.status !== "AVAILABLE") {
+                    return false;
+                }
+            }
+
             const map = (await ctx.get<Record<string, string>>("map")) || {};
             map[data.seatId] = data.status;
             ctx.set("map", map);

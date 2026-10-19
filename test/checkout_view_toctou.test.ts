@@ -17,9 +17,13 @@
 // 「回寫不得覆蓋第三人」的斷言在既有實作上是紅燈（非測試自身錯誤），
 // 故該條以 it.skip 交付、斷言完整保留（該層 CI 仍綠）；建議另開
 // agent-fix-bug（分析報告 WI-5／§5.2 R3：SeatMap 條件寫入 expected-owner/status）。
-// 另附 characterization 測試釘住**現行缺陷行為**（綠燈）：交錯後 view≠truth、
-// 且第三人依視圖下單會被真值擋下——修復合併後本測試應翻綠為正確語意，
-// 这正是 characterization 的價值（修復造成可觀察差異，防止靜默回退）。
+// 【Issue #82（AP5）已修復】src/game.ts 的 SeatMap.set 對 AVAILABLE 降級寫入改為
+// 條件寫入（同一次 handler 執行內讀 Ticket 真值，他人持有即丟棄回寫）。本檔的
+// 應然斷言已 un-skip 轉綠；characterization 依 Issue #82 指示更新為「修復後行為」
+// （view 與真值一致）——交錯次序本身不變，變的是過期回寫不再能覆蓋第三人。
+// 另附 characterization 測試釘住**現行行為**（綠燈）：#82 前為「交錯後 view≠truth、
+// 第三人依視圖下單被真值擋下」；修復後依 Issue #82 指示更新為「過期回寫被丟棄、
+// view 與真值一致」——这正是 characterization 的價值（修復造成可觀察差異，防止靜默回退）。
 //
 // 範圍：只新增 test/ 下測試，不動 src/。
 import { describe, it } from "node:test";
@@ -53,10 +57,10 @@ async function runR3Interleaving(itg: ReturnType<typeof createIntegration>) {
 }
 
 describe("Issue #80 R3——補償視圖回寫 TOCTOU（#22 修復殘留窗口）", () => {
-  // characterization：誠實釘住「現行行為」（綠燈）。
-  // 現況下交錯確實發生：真值為 bob 的有效保留，view 卻被 A 的延遲回寫覆蓋為 AVAILABLE，
-  // 且 view≠truth 可被第三人觀察到（carol 依視圖下單被真值擋下）。
-  it("交錯重現（characterization）：release=true → B 接管 → A 回寫把 view 覆蓋成 AVAILABLE（現行缺陷）", async (t) => {
+  // characterization：釘住「現行行為」（綠燈）。Issue #82 修復後依該 Issue 指示更新為
+  // 「修復後行為」：交錯仍如序發生，但 A 的過期 AVAILABLE 回寫被條件寫入丟棄——
+  // 修復造成可觀察差異（view 不再≠truth），這正是 characterization 的價值。
+  it("交錯重現（characterization，#82 修復後）：release=true → B 接管 → A 的過期回寫被條件寫入丟棄", async (t) => {
     const itg = createIntegration();
     const released = await runR3Interleaving(itg);
 
@@ -68,19 +72,20 @@ describe("Issue #80 R3——補償視圖回寫 TOCTOU（#22 修復殘留窗口�
     t.assert.equal(truth.status, "RESERVED");
     t.assert.equal(truth.reservedBy, "bob");
 
-    // 現行缺陷（釘選）：A 的過期回寫覆蓋 B 較新的 RESERVED → view 顯示幽靈可售
+    // 修復後行為（原釘選缺陷「A 的過期回寫覆蓋 B 的 view」已被條件寫入消滅）：
     const map = itg.stateOf("SeatMap", "global").data.map as Record<string, string>;
     t.assert.equal(
       map[SEAT],
-      "AVAILABLE",
-      "現況：last-writer-wins 使 A 的延遲回寫覆蓋 B 的 view（修復後本斷言應翻為 RESERVED）"
+      "RESERVED",
+      "修復後：條件寫入丟棄 A 的過期 AVAILABLE 回寫，view 維持與真值一致（RESERVED by bob）"
     );
 
-    // view≠truth 是外部可觀察的：carol 依視圖（AVAILABLE）下單，被真值（RESERVED by bob）擋下
+    // 真值守衛照常生效：carol 搶下單被 RESERVED 真值擋下（此時 view 同為 RESERVED，
+    // 前端依視圖本就不會開放下單——幽靈可售席位消滅）
     await t.assert.rejects(
       async () => await itg.ticket(SEAT).reserve("carol"),
       (err: Error) => err instanceof TerminalError && /currently reserved/.test(err.message),
-      "幽靈可售席位：依視圖行動的使用者會被真值拒絕"
+      "第三人依視圖行動不會再被「可售假象」誤導"
     );
 
     // 損害範圍限定於視圖（分析報告 §1 優先序 R3=P2 的依據）：真值仍屬 bob
@@ -90,10 +95,10 @@ describe("Issue #80 R3——補償視圖回寫 TOCTOU（#22 修復殘留窗口�
   });
 
   // 要求 2 的「應然」斷言：A 的回寫不得把已由 B 持有的座位寫成 AVAILABLE。
-  // ⚠️ 在既有實作上為紅燈（上一条測試已以綠燈釘住紅燈原因：seatMap.set 無條件覆蓋）——
-  // 依 Issue #80 要求 3／任務規則以 it.skip 交付，斷言完整保留，不得修改 production 程式碼。
-  // 修復（WI-5：SeatMap 條件寫入）合併後將本測試改回 it，應直接綠燈。
-  it.skip("應然語意（現行紅燈→待 agent-fix-bug）：A 的回寫不得把已由 B 持有的座位寫成 AVAILABLE", async (t) => {
+  // Issue #80 交付時在既有實作（seatMap.set 無條件覆蓋）上為紅燈，依任務規則以
+  // it.skip 保留完整斷言；Issue #82（WI-5：SeatMap 條件寫入）已修復——本層 un-skip，
+  // 沙箱實測「先紅（修復前）後綠（修復後）」，證據見 PR 描述與 Issue #82 留言。
+  it("應然語意（#82 已修復）：A 的回寫不得把已由 B 持有的座位寫成 AVAILABLE", async (t) => {
     const itg = createIntegration();
     const released = await runR3Interleaving(itg);
 
