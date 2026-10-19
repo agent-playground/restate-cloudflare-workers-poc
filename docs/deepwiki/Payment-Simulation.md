@@ -4,6 +4,9 @@
 > * [src/checkout.ts](https://github.com/philipz/restate-cloudflare-workers-poc/blob/513fd0f5/src/checkout.ts)
 > * [src/index.ts](https://github.com/philipz/restate-cloudflare-workers-poc/blob/513fd0f5/src/index.ts)
 > * [src/utils/payment_new.ts](https://github.com/philipz/restate-cloudflare-workers-poc/blob/513fd0f5/src/utils/payment_new.ts)
+> * [src/utils/delay.ts](../../src/utils/delay.ts)
+> * [test/payment_new.test.ts](../../test/payment_new.test.ts)
+> * [test/delay.test.ts](../../test/delay.test.ts)
 
 ## Purpose and Scope
 
@@ -51,7 +54,7 @@ HttpEndpoint -.-> Response
 
 ## processPayment Function
 
-The `processPayment` function provides in-process payment simulation. It is invoked directly within the Checkout workflow's `ctx.run` block to ensure exactly-once execution semantics.
+The `processPayment` function provides in-process payment simulation. It is invoked within the Checkout workflow's `ctx.run` block, whose result is journaled by Restate: once journaled, replay after a crash reuses the journaled result and the payment is not executed again. Note that this is **at-least-once**, not exactly-once, semantics—a crash *before* the result is journaled causes the closure to be re-executed on replay. See [錯誤分類與重試語意](#錯誤分類與重試語意現況) below.
 
 ### Function Signature
 
@@ -72,18 +75,25 @@ The function simulates three distinct payment outcomes based on the `paymentMeth
 | `card_error` | Gateway timeout/unavailable | 500ms | N/A | `Error("Gateway timeout")` |
 | Any other value | Treated as success | 500ms | `true` | None |
 
+現況補充（繁體中文，Issue #95）：
+
+* 除上述三種保留值外，**其他任何 `paymentMethodId` 一律視為成功**回傳 `true`（payment_new.ts:9–20 只比對 `card_decline` 與 `card_error` 兩個字串）。
+* Checkout handler 對請求參數做預設值解構：`paymentMethodId = "card_success"`（checkout.ts:10）——請求未帶付款方式使用時走成功路徑。
+* `amount` 參數**完全不參與決策**，只進 log：0、負數、非數字標識之金額照樣成功。此邊界行為由 `test/payment_new.test.ts` 的既有測試鎖住（決策完全取決於 `paymentMethodId`）。
+* 延遲並非直接內嵌 `setTimeout`，而是呼叫可注入的 `delay(500)`（payment_new.ts:7，實作見 `src/utils/delay.ts`）；測試環境下延遲被全域歸零，見下文「Latency Simulation」。
+
 ### Decision Flow Diagram
 
 ```mermaid
 flowchart TD
 
 Start["processPayment(amount, paymentMethodId)"]
-Delay["await setTimeout(500ms)<br>Simulate network latency<br>[payment_new.ts:5]"]
+Delay["await delay(500)<br>Simulate network latency<br>[payment_new.ts:7]"]
 CheckDecline["paymentMethodId === 'card_decline'"]
 CheckError["paymentMethodId === 'card_error'"]
-ThrowDecline["throw Error('Payment declined')<br>[payment_new.ts:9]"]
-ThrowTimeout["throw Error('Gateway timeout')<br>[payment_new.ts:14]"]
-ReturnSuccess["return true<br>[payment_new.ts:18]"]
+ThrowDecline["throw Error('Payment declined')<br>[payment_new.ts:9-11]"]
+ThrowTimeout["throw Error('Gateway timeout')<br>[payment_new.ts:14-16]"]
+ReturnSuccess["return true<br>[payment_new.ts:19-20]"]
 
 Start -.-> Delay
 Delay -.-> CheckDecline
@@ -95,15 +105,19 @@ CheckError -.->|"No"| ReturnSuccess
 
 **Sources:** [src/utils/payment_new.ts L1-L19](https://github.com/philipz/restate-cloudflare-workers-poc/blob/513fd0f5/src/utils/payment_new.ts#L1-L19)
 
+ **現況行號**：`delay(500)` 在 payment_new.ts:7，`card_decline` 分支 L9–L12，`card_error` 分支 L14–L17，成功回傳 L19–L20（上方節點標註以現況為準）。
+
 ### Latency Simulation
 
-All payment outcomes include a consistent 500ms delay to simulate realistic network latency:
+All payment outcomes include a consistent 500ms delay to simulate realistic network latency. The current implementation routes the wait through the injectable delay abstraction (`src/utils/delay.ts`) instead of an inlined `setTimeout`:
 
-```javascript
-await new Promise(resolve => setTimeout(resolve, 500)); // Simulate 500ms latency
+```typescript
+await delay(500); // Simulate 500ms latency（測試可經 setDelayImpl 歸零）
 ```
 
-**Location:** [src/utils/payment_new.ts L5](https://github.com/philipz/restate-cloudflare-workers-poc/blob/513fd0f5/src/utils/payment_new.ts#L5-L5)
+**Location:** [src/utils/payment_new.ts:7](../../src/utils/payment_new.ts)
+
+**測試環境的歸零方式**：`test/loader/test-setup.mjs` 在測試啟動時全域呼叫 `setDelayImpl(() => Promise.resolve())`，因此 `delay(500)` 在測試期間立即 resolve，不再建立計時器；未被注入時預設實作等價於原本的 `await new Promise(resolve => setTimeout(resolve, ms))`，正式環境行為不變。延遲長度本身從未被任何測試斷言，被驗證的是回傳值與拋錯型別（見 `test/payment_new.test.ts`；延遲機制本身的契約測試見 `test/delay.test.ts`）。完整說明見 [Utilities & Supporting Services — Injectable delay](./Utilities-&-Supporting-Services.md)。
 
 This delay is critical for testing:
 
@@ -113,7 +127,7 @@ This delay is critical for testing:
 
 ### Integration with Checkout Workflow
 
-The Checkout workflow invokes `processPayment` within a `ctx.run` block to ensure exactly-once execution:
+The Checkout workflow invokes `processPayment` within a `ctx.run` block so the result is journaled and not re-executed on replay (at-least-once, not exactly-once—see [錯誤分類與重試語意](#錯誤分類與重試語意現況)):
 
 ```javascript
 await ctx.run("process-payment", async () => {
@@ -125,12 +139,12 @@ await ctx.run("process-payment", async () => {
 });
 ```
 
-**Location:** [src/checkout.ts L22-L28](https://github.com/philipz/restate-cloudflare-workers-poc/blob/513fd0f5/src/checkout.ts#L22-L28)
+**Location:** [src/checkout.ts:22-28](../../src/checkout.ts)
 
 Key architectural points:
 
-* `ctx.run` provides idempotent execution—if the workflow crashes after payment succeeds, replay will skip re-executing the payment
-* Exceptions are caught and wrapped in `TerminalError` to trigger saga compensation
+* `ctx.run` 的結果寫入 journal 後，重放（replay）會直接使用 journaled result 而不再執行閉包——扣款成功後崩潰、重放不會再扣一次；但若崩潰發生在結果寫入之前，重放會再執行閉包一次，故語意是 **at-least-once**（`processPayment` 不帶冪等鍵，重放可能重複扣款，此風險分析見 [Saga Pattern & Compensation](./Saga-Pattern-&-Compensation.md) R4）
+* Exceptions are caught and wrapped in `TerminalError` to trigger saga compensation（不重試，詳見下文錯誤分類）
 * The `amount` is hardcoded to `100` in the workflow, representing ticket price
 
 **Sources:** [src/checkout.ts L22-L28](https://github.com/philipz/restate-cloudflare-workers-poc/blob/513fd0f5/src/checkout.ts#L22-L28)
@@ -192,7 +206,7 @@ flowchart TD
 Request["POST /api/mock-payment<br>{amount, paymentMethodId}"]
 MethodCheck["request.method === 'POST'"]
 ParseBody["await request.json()<br>Extract amount, paymentMethodId<br>[index.ts:16]"]
-Delay["await setTimeout(500ms)<br>Simulate processing<br>[index.ts:20]"]
+Delay["await delay(500)<br>Simulate processing<br>[index.ts:22]"]
 CheckDecline["paymentMethodId === 'card_decline'"]
 CheckError["paymentMethodId === 'card_error'"]
 Return405["Response('Method not allowed')<br>Status: 405<br>[index.ts:13]"]
@@ -315,13 +329,42 @@ catch (e) {
 }
 ```
 
-**Location:** [src/checkout.ts L26](https://github.com/philipz/restate-cloudflare-workers-poc/blob/513fd0f5/src/checkout.ts#L26-L26)
+**Location:** [src/checkout.ts:26](../../src/checkout.ts)
 
 This pattern ensures that:
 
 * Declined payments (`card_decline`) do not retry infinitely
-* Gateway timeouts (`card_error`) trigger immediate compensation
-* The saga pattern executes cleanup logic (ticket release) exactly once
+* Gateway timeouts (`card_error`) trigger immediate compensation——注意 `card_error` 擲出的 `Error("Gateway timeout")` 同樣在內層 try-catch 被包成 `TerminalError`（checkout.ts:25–27），因此**在 workflow 脈絡內它不會被 Restate 重試**；「測試錯誤處理與重試行為」指的是 load test 層面觀察 invocation 的整體行為（見下方重試語意）
+* The saga pattern executes cleanup logic (ticket release) exactly once——補償對虛擬物件的呼叫（`release`、`set`）本身由 Restate journal 化，重放時不會重複執行；但釋放成功與否決定是否回寫視圖（見下圖）
+
+### 錯誤分類與重試語意（現況）
+
+**錯誤的兩條路徑**（checkout.ts:22–46）：
+
+1. **付款例外 → `TerminalError`（不重試、走補償）**：`ctx.run("process-payment")` 閉包內（checkout.ts:22–28），`processPayment` 擲出的任何 `Error`（`card_decline`／`card_error`／其他例外）都被內層 try-catch 包成 `restate.TerminalError`。`TerminalError` 向 Restate 表示**永久性失敗**：server 不再重試這個 invocation；例外向外冒泡到外層 catch（checkout.ts:29–46），依序執行補償——釋放票券、（僅在釋放成功時）回寫 SeatMap 為 `AVAILABLE`——再以另一個 `TerminalError`（`Payment failed: ...`）終止整個工作流。
+2. **瞬時（非 Terminal）失敗 → 重試政策＋重放**：若閉包或 handler 向外拋出的是普通 `Error`，或發生基礎設施層失敗（Worker 崩潰、暫停、與 server 的連線中斷），Restate 依重試政策重試整個 invocation。重試的實作方式是**重放（replay）**：從頭重新執行 handler，但已寫入 journal 的 `ctx.run` 結果直接重用、不再執行閉包，只有尚未 journal 化的步驟會真正再跑一次。
+
+**journal 重放語意（at-least-once）**：
+
+| 崩潰時機 | 重放行為 | 對扣款的影響 |
+| --- | --- | --- |
+| `ctx.run("process-payment")` 結果**已寫入 journal** | 閉包不再執行，直接使用 journaled result | 不會再扣款 |
+| 結果**寫入 journal 之前**崩潰 | 閉包重新執行 | **可能重複扣款**——`processPayment` 不帶冪等鍵；完整風險分析見 [Saga Pattern & Compensation](./Saga-Pattern-&-Compensation.md) 的 R4 |
+
+因此本文件其餘段落提及的「exactly-once」應理解為：**已確認完成的步驟在重放時不再重複執行**；每個 `ctx.run` 閉包的實際執行次數下限是 1、上限不受保證——語意是 **at-least-once**。
+
+**本 repo 未設定 retryPolicy——瞬時錯誤套用 Restate server 預設重試政策**：`src/` 內沒有任何 service 級或 handler 級的 `retryPolicy`／`options` 宣告（`restate.service({ name, handlers })`，checkout.ts:6–8），因此未包成 `TerminalError` 的失敗由 server 端預設值處理。依官方文件 [Service Configuration — Retries](https://docs.restate.dev/services/configuration)（查證日期 2026-10-19），預設為指數型退避（exponential back-off）：
+
+```toml
+[invocation.default-retry-policy]
+initial-interval = "50ms"
+exponentiation-factor = 2.0
+max-attempts = 70
+max-interval = "60s"
+on-max-attempts = "pause"   # 嘗試耗盡後暫停 invocation，需手動 resume；亦可設 "kill" 直接終端失敗
+```
+
+> ⚠️ **版本註記**：README 以 `docker.io/restatedev/restate:latest` 啟動本地 Restate server（README.md:37），**未鎖定版號**；上表是查證當日的官方文件預設值，可能隨 server 版本變動。核對實際值請以部署時拉到的 image 版本對應的文件為準。
 
 ### Compensation Trigger Flow
 
@@ -338,18 +381,22 @@ sequenceDiagram
   p1->>p4: set(seatId, RESERVED)
   p4-->>p1: Success
   p1->>p2: processPayment(100, "card_decline")
-  note over p2: await setTimeout(500ms)
+  note over p2: await delay(500)<br/>[payment_new.ts:7]
   p2->>p2: Check: paymentMethodId === "card_decline"
-  p2-->>p1: throw Error("Payment declined")
-  note over p1: catch block triggered<br/>[checkout.ts:29]
-  p1->>p3: release()
-  p3-->>p1: Success (AVAILABLE)
-  p1->>p4: set(seatId, AVAILABLE)
-  p4-->>p1: Success
+  p2-->>p1: throw Error → 包成 TerminalError（不重試）<br/>[checkout.ts:25-27]
+  note over p1: outer catch triggered<br/>[checkout.ts:29-46]
+  p1->>p3: release(userId)
+  p3-->>p1: boolean（已 SOLD／他人持有 → false）
+  alt released === true
+    p1->>p4: set(seatId, AVAILABLE)（條件性回寫）
+    note over p4: AVAILABLE 降級為條件寫入（Issue #22/#82）：<br/>同次執行讀真值，他人持有即丟棄
+  else released === false
+    note over p1: 不回寫視圖（避免幽靈可售席位）
+  end
   p1-->>p1: throw TerminalError("Payment failed")
 ```
 
-**Sources:** [src/checkout.ts L20-L35](https://github.com/philipz/restate-cloudflare-workers-poc/blob/513fd0f5/src/checkout.ts#L20-L35)
+**Sources:** [src/checkout.ts:20-46](../../src/checkout.ts)
 
  [src/utils/payment_new.ts L7-L14](https://github.com/philipz/restate-cloudflare-workers-poc/blob/513fd0f5/src/utils/payment_new.ts#L7-L14)
 
